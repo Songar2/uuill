@@ -1,0 +1,1329 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4834d4">
+<title>uuill — 자산·부채 관리</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8/framework7-bundle.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  /* 커스텀 CSS는 F7가 못 하는 것만 — 토스 블루 테마 + 히어로 그라데이션 + 큰 숫자 */
+  :root{
+    --f7-theme-color:#6c5ce7;
+    --f7-theme-color-rgb:108,92,231;
+    --f7-theme-color-shade:#5444d8;
+    --f7-theme-color-tint:#8979ec;
+    --f7-font-family:'Pretendard Variable','Pretendard',-apple-system,sans-serif;
+  }
+  .hero-card{
+    background:linear-gradient(135deg,#4834d4,#6c5ce7); color:#fff;
+    border-radius:20px; padding:24px 20px; margin:16px;
+  }
+  .hero-card .stage{font-size:32px; font-weight:800; letter-spacing:-0.02em;}
+  .hero-card .sub{font-size:11px; opacity:.85;}
+  .hero-card .stats{font-size:13px; line-height:1.8; text-align:right;}
+  .big-num{font-size:24px; font-weight:800; letter-spacing:-0.02em;}
+  .ric-f7{width:40px; height:40px; border-radius:12px; display:flex; align-items:center;
+    justify-content:center; font-weight:600; font-size:16px;}
+  /* 달력 — F7 캘린더는 일별 합계 표기가 안 돼 커스텀 그리드 유지 */
+  .cal{display:grid; grid-template-columns:repeat(7,1fr); gap:4px; padding:0 16px;}
+  .cal .wd2{text-align:center; font-size:11px; color:var(--f7-list-item-after-text-color); font-weight:600; padding:4px 0;}
+  .cal .day{min-height:52px; border-radius:12px; padding:6px 2px 4px; cursor:pointer; text-align:center;
+    display:flex; flex-direction:column; align-items:center; gap:1px;}
+  .cal .day.sel{background:rgba(var(--f7-theme-color-rgb),.12);}
+  .cal .day .num{font-size:13px; font-weight:600; width:24px; height:24px; line-height:24px; border-radius:50%;}
+  .cal .day.today .num{background:var(--f7-theme-color); color:#fff; font-weight:700;}
+  .cal .day .ex{font-size:9px; font-weight:700; color:#f04452; line-height:1.2;}
+  .cal .day .in{font-size:9px; font-weight:700; color:var(--f7-theme-color); line-height:1.2;}
+  .stack{display:flex; height:10px; border-radius:8px; overflow:hidden; background:var(--f7-list-item-border-color);}
+  .donut-f7{width:120px; height:120px; border-radius:50%; position:relative; flex-shrink:0;}
+  .donut-f7 .hole{position:absolute; inset:24px; background:var(--f7-list-bg-color); border-radius:50%;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;}
+  .donut-f7 .hole b{font-size:17px; font-weight:800;}
+  .donut-f7 .hole span{font-size:10px; color:var(--f7-list-item-after-text-color);}
+</style>
+</head>
+<body>
+
+<div id="app">
+  <div class="view view-main">
+    <div class="page">
+
+      <div class="navbar">
+        <div class="navbar-bg"></div>
+        <div class="navbar-inner">
+          <div class="title" style="font-weight:800">uuill</div>
+        </div>
+      </div>
+
+      <div class="toolbar tabbar toolbar-bottom">
+        <div class="toolbar-inner">
+          <a href="#tab-home"   class="tab-link tab-link-active">홈</a>
+          <a href="#tab-ledger" class="tab-link">가계부</a>
+          <a href="#tab-asset"  class="tab-link">자산</a>
+          <a href="#tab-debt"   class="tab-link">부채</a>
+          <a href="#tab-invest" class="tab-link">투자</a>
+          <a href="#tab-goal"   class="tab-link">목표</a>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div id="tab-home"   class="page-content tab tab-active"><div id="home-content"></div></div>
+        <div id="tab-ledger" class="page-content tab"><div id="ledger-content"></div></div>
+        <div id="tab-asset"  class="page-content tab"><div id="asset-content"></div></div>
+        <div id="tab-debt" class="page-content tab"><div id="debt-content"></div></div>
+        <div id="tab-invest" class="page-content tab"><div id="invest-content"></div></div>
+        <div id="tab-goal" class="page-content tab"><div id="goal-content"></div></div>
+      </div>
+
+      <div class="fab fab-right-bottom" id="ledger-fab" style="display:none">
+        <a href="#" onclick="openLedgerSheet();return false">
+          <i class="icon f7-icons">plus</i>
+        </a>
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/framework7@8/framework7-bundle.min.js"></script>
+<script>
+"use strict";
+// ───────── 상태 & 저장 ─────────
+const DEFAULT_STATE = {
+  income: 3200000, living: 2200000, assets: 15000000,
+  debts: [
+    { name:"리볼빙", balance:1000000, rate:18, minPay:0 },
+    { name:"마이너스통장", balance:1200000, rate:7, minPay:0 },
+    { name:"학자금 대출", balance:8000000, rate:2.7, minPay:0 },
+  ],
+  bucket: [
+    { name:"유럽여행", cost:5000000 },
+    { name:"노트북", cost:2000000 },
+    { name:"콘서트 VIP", cost:250000 },
+  ],
+  risk: "중립",
+  dcaMonths: 6,
+  fixedRepay: 0,
+  emergencyNow: 1000000,
+  emergencyMonths: 3,
+  refiRate: 7,
+  sortDebt: "rate", sortPort: "custom", sortBucket: "cost",
+  ledger: [],
+  example: false,
+  lastBackup: 0,
+  v: 2,
+  portfolio: [
+    { name:"ISA (절세)",     cat:"위험", value:14000000, target:28 },
+    { name:"채권 ETF",       cat:"안전", value:10000000, target:20 },
+    { name:"미국 본토 ETF",  cat:"위험", value:5000000,  target:10 },
+    { name:"한국 직투",      cat:"위험", value:3000000,  target:6 },
+    { name:"발행어음 CMA",   cat:"안전", value:7500000,  target:15 },
+    { name:"정기예금",       cat:"안전", value:7500000,  target:15 },
+    { name:"청약 (주택드림)", cat:"청약", value:3000000,  target:6 },
+  ],
+};
+const KEY = "uuill-state-v1";
+// ── 스키마 검증·마이그레이션 (v2) ──
+function migrate(raw){
+  const st = structuredClone(DEFAULT_STATE);
+  if(!raw || typeof raw !== "object") return st;
+  Object.assign(st, raw);
+  const arr = a => Array.isArray(a) ? a.filter(x=>x && typeof x==="object") : [];
+  st.debts = arr(st.debts).map(x=>({
+    name: String(x.name||"부채"), balance: Math.max(0,Number(x.balance)||0),
+    rate: Math.max(0,Number(x.rate)||0), minPay: Math.max(0,Number(x.minPay)||0) }));
+  st.portfolio = arr(st.portfolio).map(x=>({
+    name: String(x.name||"자산"),
+    cat: ["안전","위험","청약"].includes(x.cat) ? x.cat : "안전",
+    value: Math.max(0,Number(x.value)||0), target: Math.max(0,Number(x.target)||0) }));
+  // 구버전: portfolio 없던 시절 assets 단일값
+  if(!st.portfolio.length && Number(raw.assets)>0)
+    st.portfolio = [{name:"현금/예금", cat:"안전", value:Number(raw.assets), target:100}];
+  st.bucket = arr(st.bucket).map(x=>({ name:String(x.name||"목표"), cost:Math.max(0,Number(x.cost)||0) }));
+  st.ledger = arr(st.ledger)
+    .filter(e=>/^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) && Number(e.amount)>0)
+    .map(e=>({ id:Number(e.id)||Math.floor(Date.now()*Math.random()), date:String(e.date),
+      type: e.type==="수입"?"수입":"지출", cat:String(e.cat||"기타"),
+      amount:Number(e.amount), memo:String(e.memo||"") }));
+  ["income","living","fixedRepay","emergencyNow","lastBackup"].forEach(k=>st[k]=Math.max(0,Number(st[k])||0));
+  st.dcaMonths = Math.max(1,Number(st.dcaMonths)||6);
+  st.emergencyMonths = Math.max(0,Number(st.emergencyMonths)||3);
+  st.refiRate = Math.max(0,Number(st.refiRate)||7);
+  if(!["안정","중립","공격"].includes(st.risk)) st.risk = "중립";
+  st.example = !!st.example;
+  st.v = 2;
+  return st;
+}
+let S;
+try{
+  const raw = JSON.parse(localStorage.getItem(KEY));
+  S = migrate(raw);
+  if(!raw) S.example = true; // 최초 실행 — 페르소나 샘플
+}catch(e){ S = migrate(null); S.example = true; }
+function save(){ try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){} }
+
+// ── 가계부 ──
+const EXP_CATS = ["식비","카페·간식","교통","주거·관리","통신","보험·구독","쇼핑","의료","여가","교육","기타"];
+const FIXED_CATS = new Set(["주거·관리","통신","보험·구독","교육"]); // 일할 환산하지 않는 고정성 지출
+const INC_CATS = ["급여","사업","용돈","이자·배당","기타"];
+const WD = ["일","월","화","수","목","금","토"];
+const pad2 = n => String(n).padStart(2,"0");
+const todayStr = (()=>{const d=new Date(); return d.getFullYear()+"-"+pad2(d.getMonth()+1)+"-"+pad2(d.getDate());})();
+let LMONTH = todayStr.slice(0,7);
+let LDATE = todayStr; // 달력에서 선택한 날짜
+let LTYPE = "지출";
+const shCal = v => { const x=v/10000; const t = x>=10?Math.round(x):Math.round(x*10)/10; return t+"만"; };
+function shiftMonth(k){
+  let [y,m] = LMONTH.split("-").map(Number);
+  m += k; if(m<1){m=12;y--;} if(m>12){m=1;y++;}
+  LMONTH = y+"-"+pad2(m);
+  LDATE = (LMONTH===todayStr.slice(0,7)) ? todayStr : LMONTH+"-01";
+  render();
+}
+function selectDay(d){ LDATE = d; render(); }
+function monthEntries(mo=LMONTH){
+  return S.ledger.filter(e=>e.date.slice(0,7)===mo)
+    .sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
+}
+function monthSum(type, mo=LMONTH){
+  return monthEntries(mo).filter(e=>e.type===type).reduce((s,e)=>s+e.amount,0);
+}
+function ledgerStats(mo=LMONTH){
+  const ents = monthEntries(mo);
+  const inc = ents.filter(e=>e.type==="수입").reduce((s,e)=>s+e.amount,0);
+  let fixedExp=0, varExp=0;
+  ents.filter(e=>e.type==="지출").forEach(e=>{
+    FIXED_CATS.has(e.cat) ? fixedExp+=e.amount : varExp+=e.amount;
+  });
+  const exp = fixedExp + varExp;
+  const isCurrent = mo === todayStr.slice(0,7);
+  let projExp = exp;
+  if(isCurrent && exp > 0){
+    const [y,m] = mo.split("-").map(Number);
+    const daysIn = new Date(y, m, 0).getDate();
+    const dayNow = Math.max(new Date().getDate(), 1);
+    // 고정성 지출(월세·통신 등)은 그대로, 변동 지출만 일할 환산
+    projExp = fixedExp + varExp/dayNow*daysIn;
+  }
+  return { inc, exp, fixedExp, varExp, projExp, isCurrent };
+}
+
+// ───────── 포트폴리오 카테고리 ─────────
+// 가정 수익률(연): 안전 3.3% / 위험 7% / 청약 4.5%
+const CAT_RETURN = { 안전:0.033, 위험:0.07, 청약:0.045 };
+const CAT_COLOR  = { 안전:"#17c167", 위험:"#f04452", 청약:"#c9a227" };
+const CAT_GLYPH  = { 안전:"₩", 위험:"↗", 청약:"⌂" };
+function portTotal(){ return S.portfolio.reduce((s,p)=>s+p.value,0); }
+function portBaseReturn(){
+  const t = portTotal();
+  if(t<=0) return 0.05;
+  return S.portfolio.reduce((s,p)=>s+p.value/t*CAT_RETURN[p.cat],0);
+}
+
+// ───────── 투자 포트폴리오 (자산군 룰베이스) ─────────
+// 가정 수익률: 예적금 3% / 채권 ETF 4% / 주식 ETF 7% (연, 세전 단순 가정)
+const ASSET_RETURN = { saving:0.03, bond:0.04, equity:0.07 };
+const ASSET_LABEL  = { saving:"예적금·파킹", bond:"채권 ETF", equity:"지수 ETF" };
+const ASSET_COLOR  = { saving:"#a29bfe", bond:"#6c5ce7", equity:"#4834d4" };
+const PORTFOLIOS = {
+  안정: { saving:.6, bond:.3, equity:.1 },
+  중립: { saving:.3, bond:.3, equity:.4 },
+  공격: { saving:.1, bond:.2, equity:.7 },
+};
+function blendedReturn(risk){
+  const p = PORTFOLIOS[risk];
+  return Object.keys(p).reduce((s,k)=>s+p[k]*ASSET_RETURN[k],0);
+}
+
+// ───────── 유틸 ─────────
+const fmt = n => Math.round(n).toLocaleString("ko-KR");
+const fmtMan = n => {
+  const man = n/10000;
+  return man >= 10000 ? (man/10000).toFixed(1)+"억" : fmt(man)+"만";
+};
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// ───────── 진단 (Appendix 5) ─────────
+function diagnose(){
+  const assets = portTotal();
+  const totalDebt = S.debts.reduce((s,d)=>s+d.balance,0);
+  const netWorth = assets - totalDebt;
+  const debtRatio = assets>0 ? totalDebt/assets : Infinity;
+  // 월 잉여 = 소득 - (소비 지출 + 약정·고정 상환)
+  // 실적 진단은 수입·지출이 모두 기록된 달에만 — 한쪽만 있으면 비대칭 왜곡이라 기본값 유지
+  const st = ledgerStats(LMONTH);
+  let income = S.income, living = S.living, ledgerBased = false, partialLedger = false;
+  if(st.inc > 0 && st.projExp > 0){ income = st.inc; living = st.projExp; ledgerBased = true; }
+  else if(st.inc > 0 || st.projExp > 0){ partialLedger = true; }
+  const minPaySum = S.debts.reduce((s,d)=>s+(d.minPay||0),0);
+  const fixedAll = S.fixedRepay + minPaySum;
+  const surplus = Math.max(income - living - fixedAll, 0);
+  const hasHighRate = S.debts.some(d=>d.rate>=15);
+  // 단계 판정용 상환부담률 (배분 전이므로 상환 50% 가정)
+  const dsr0 = income>0 ? (fixedAll + surplus*0.5)/income : 0;
+  let stage, alloc;
+  if (hasHighRate && dsr0>0.4){ stage="비상"; alloc={repay:.8,emergency:.2,invest:0}; }
+  else if (hasHighRate || debtRatio>0.6){ stage="주의"; alloc={repay:.5,emergency:.2,invest:.3}; }
+  else { stage="양호"; alloc={repay:.3,emergency:.2,invest:.5}; }
+  // 표시용 상환부담률 = (약정·고정 상환 + 배분 상환액) / 월 소득 ※ 규제 DSR과 다른 간이 지표
+  const dsr = income>0 ? (fixedAll + surplus*alloc.repay)/income : 0;
+  return { assets, totalDebt, netWorth, debtRatio, surplus, stage, alloc, hasHighRate, dsr,
+           income, living, ledgerBased, partialLedger, minPaySum };
+}
+
+// ───────── 시뮬레이션 (avalanche) ─────────
+function simulate(diag, investReturn, maxMonths=360, debts=S.debts){
+  let ds = debts.map((d,i)=>({...d, _i:i, bal:d.balance, interest:0, payoff:null}))
+                .sort((a,b)=>b.rate-a.rate);
+  let invest=0, emergency=S.emergencyNow||0, debtFreeMonth=null;
+  const emTarget = S.living*S.emergencyMonths;
+  const events=[], series=[];
+  const settle = (d,m)=>{ if(d.bal<=0.5 && d.payoff===null){ d.bal=0; d.payoff=m; events.push({month:m, label:`${d.name} 상환 완료`}); } };
+  for(let m=1; m<=maxMonths; m++){
+    ds.forEach(d=>{ if(d.bal>0){ const iv=d.bal*d.rate/100/12; d.bal+=iv; d.interest+=iv; } });
+    // 1) 약정 상환 (재원: 잉여 산정에서 이미 차감된 minPay)
+    ds.forEach(d=>{ if(d.bal>0 && d.minPay){ d.bal -= Math.min(d.bal, d.minPay); settle(d,m); } });
+    // 2) 잉여 배분분 추가 상환 (고금리 우선)
+    const anyDebt = ds.some(d=>d.bal>0);
+    let budget = anyDebt ? diag.surplus*diag.alloc.repay : 0;
+    for(const d of ds){
+      if(d.bal<=0 || budget<=0) continue;
+      const pay = Math.min(d.bal, budget);
+      d.bal -= pay; budget -= pay; settle(d,m);
+    }
+    // 3) 비상금: 목표(생활비×n) 도달 후에는 투자로 전환
+    const emAdd = diag.surplus*diag.alloc.emergency;
+    const emPart = emergency < emTarget ? Math.min(emAdd, emTarget-emergency) : 0;
+    emergency += emPart;
+    const investAdd = (anyDebt ? diag.surplus*diag.alloc.invest
+                               : diag.surplus*(diag.alloc.repay+diag.alloc.invest))
+                      + (emAdd - emPart) + budget; // 남은 상환예산도 투자로
+    invest = invest*(1+investReturn/12) + investAdd;
+    const totalBal = ds.reduce((s,d)=>s+d.bal,0);
+    if(debtFreeMonth===null && totalBal<=0){ debtFreeMonth=m; events.push({month:m, label:"전체 부채 Zero"}); }
+    series.push({m, debt:totalBal, invest, emergency});
+  }
+  const perDebt = ds.map(d=>({_i:d._i, name:d.name, rate:d.rate, interest:d.interest, payoff:d.payoff}));
+  return { events, series, debtFreeMonth, perDebt };
+}
+
+// ── 대환 분석 (슬라이드 13: 기존 상환 vs 저금리 대환) ──
+function refiAnalysis(diag, ret){
+  const high = S.debts.map((d,i)=>({...d,_i:i})).filter(d=>d.rate>=15 && d.rate>S.refiRate);
+  if(!high.length || diag.surplus<=0) return null;
+  const simA = simulate(diag, ret);
+  const simB = simulate(diag, ret, 360, S.debts.map(d=>(d.rate>=15&&d.rate>S.refiRate)?{...d, rate:S.refiRate}:d));
+  const intA = simA.perDebt.reduce((s,p)=>s+p.interest,0);
+  const intB = simB.perDebt.reduce((s,p)=>s+p.interest,0);
+  const ids = new Set(high.map(d=>d._i));
+  const poA = Math.max(...simA.perDebt.filter(p=>ids.has(p._i)).map(p=>p.payoff||9999));
+  const poB = Math.max(...simB.perDebt.filter(p=>ids.has(p._i)).map(p=>p.payoff||9999));
+  const annualSave = high.reduce((s,d)=>s+d.balance*(d.rate-S.refiRate)/100,0);
+  const totalSave = intA - intB;
+  // 단기 상환 가능하면 대환 실익 작음 (슬라이드 13 결론과 동일 로직)
+  const recommend = (poA<=6)
+    ? "단기 집중 상환 추천 — 대환 절차 비용·시간 대비 실익 작음"
+    : `대환 검토 추천 — 총이자 약 ${fmtMan(totalSave)} 원 절감 예상`;
+  return { high, poA, poB, intA, intB, annualSave, totalSave, recommend };
+}
+
+// ───────── 렌더 ─────────
+
+// ═══════════ Framework7 앱 ═══════════
+const app = new Framework7({ el: "#app", theme: "ios", name: "uuill" });
+
+function toast(msg, undoable){
+  if(undoable){
+    const t = app.toast.create({
+      text: esc(msg),
+      closeButton: true, closeButtonText: "실행취소",
+      closeTimeout: 3500, position: "bottom",
+      on: { closeButtonClick(){ doUndo(); } }
+    });
+    t.open();
+  } else {
+    app.toast.show({ text: esc(msg), closeTimeout: 1600, position: "bottom" });
+  }
+}
+let UNDO = null;
+function doUndo(){
+  if(!UNDO) return;
+  S[UNDO.arr].splice(UNDO.idx, 0, UNDO.item);
+  UNDO = null; save(); render(); toast("복구되었습니다");
+}
+function goTab(t){ app.tab.show("#tab-"+t); }
+function clearExample(){
+  S.debts=[]; S.portfolio=[]; S.bucket=[]; S.ledger=[]; S.example=false;
+  save(); render(); toast("샘플을 비웠습니다");
+}
+function dismissExample(){ S.example=false; save(); render(); }
+function exportJSON(){
+  S.lastBackup = Date.now(); save();
+  const blob = new Blob([JSON.stringify(S,null,2)], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "uuill-backup-" + todayStr + ".json";
+  a.click();
+  render(); toast("백업 파일을 내보냈습니다");
+}
+
+const stageDesc = {비상:"공격적 상환", 주의:"균형 상환", 양호:"적극적 투자"};
+
+// ═══════════ 홈 탭 렌더 (F7 컴포넌트) ═══════════
+function renderHome(){
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const sim = simulate(diag, ret);
+  const simBear = simulate(diag, Math.max(ret-0.04, 0.005));
+  const st = ledgerStats(LMONTH);
+  const pct = S.living>0 ? Math.min(st.exp/S.living,1) : 0;
+  const over = S.living>0 && st.exp>S.living;
+  const [yy,mm] = LMONTH.split("-");
+  const t0 = portTotal();
+  const rebal = S.portfolio.filter(p=>Math.abs(t0*p.target/100-p.value)>=50000).length;
+
+  // 버킷 (로직 동일: 비용순 누적, 투자 누적 기준)
+  let cum=0;
+  const bucketRows = [...S.bucket].sort((a,b)=>a.cost-b.cost).map(b=>{
+    cum += b.cost;
+    const hit = sim.series.find(p=>p.invest>=cum);
+    return {...b, month: hit?hit.m:null};
+  });
+  const nextBucket = bucketRows.find(b=>b.month);
+  const top = [...S.debts].sort((a,b)=>b.rate-a.rate)[0];
+
+  document.getElementById("home-content").innerHTML = `
+  ${S.example ? `
+  <div class="card card-outline" style="margin:16px">
+    <div class="card-header" style="font-weight:700">예시 데이터로 보고 있어요</div>
+    <div class="card-content card-content-padding" style="font-size:13px;color:var(--f7-text-color)">
+      샘플(페르소나 백은혜) 데이터입니다. 내 데이터로 시작하려면 비우세요.</div>
+    <div class="card-footer">
+      <a href="#" class="link" onclick="clearExample();return false">비우고 시작</a>
+      <a href="#" class="link color-gray" onclick="dismissExample();return false">샘플 유지</a>
+    </div>
+  </div>` : ""}
+
+  ${(!S.example && Date.now()-(S.lastBackup||0) > 14*86400000 && (S.ledger.length>0 || S.portfolio.length>0)) ? `
+  <div class="list inset" style="margin-top:16px">
+    <ul><li>
+      <a href="#" class="item-link item-content" onclick="exportJSON();return false">
+        <div class="item-inner">
+          <div class="item-title" style="font-size:14px">${S.lastBackup?Math.floor((Date.now()-S.lastBackup)/86400000)+"일째 백업 없음":"백업 기록 없음"}</div>
+          <div class="item-after text-color-primary">지금 백업</div>
+        </div>
+      </a>
+    </li></ul>
+  </div>` : ""}
+
+  <div class="hero-card">
+    <div class="display-flex justify-content-space-between align-items-center">
+      <div>
+        <div class="sub">현재 재무 단계</div>
+        <div class="stage">${diag.stage}단계</div>
+        <div class="sub">${diag.ledgerBased ? Number(mm)+"월 가계부 실적 기준" : "기본값 기준 — 가계부 기록 없음"}</div>
+      </div>
+      <div class="stats">
+        <div>월 잉여현금 <b>${fmtMan(diag.surplus)} 원</b></div>
+        <div>순자산 <b>${fmtMan(diag.netWorth)} 원</b> · 총부채 <b>${fmtMan(diag.totalDebt)} 원</b></div>
+        <div>상환부담률 <b>${(diag.dsr*100).toFixed(0)}%</b>${diag.hasHighRate?" · 고금리 보유":""}</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="block-title">‹ ${yy}년 ${Number(mm)}월 현황 ›
+    <a href="#" class="link" style="margin-left:8px" onclick="shiftMonth(-1);return false">이전</a>
+    <a href="#" class="link" onclick="shiftMonth(1);return false">다음</a></div>
+  <div class="list inset">
+    <ul>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">실제 수입 (가계부)</div>
+        <div class="item-after text-color-primary">${st.inc?"+"+fmt(st.inc)+" 원":"기록 없음"}</div></div></li>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">실제 지출 (가계부)</div>
+        <div class="item-after">${st.exp?"-"+fmt(st.exp)+" 원":"기록 없음"}</div></div></li>
+      ${st.isCurrent && st.exp ? `
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">월말 예상 지출</div>
+        <div class="item-after">${fmt(Math.round(st.projExp))} 원</div></div></li>` : ""}
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">적용 잉여현금 ${diag.ledgerBased?"(실적)":"(기본값)"}</div>
+        <div class="item-after text-color-primary"><b>${fmt(Math.round(diag.surplus))} 원</b></div></div></li>
+      <li class="item-content"><div class="item-inner item-cell">
+        <div style="width:100%">
+          <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-bottom:6px">
+            생활비 예산 대비 ${(pct*100).toFixed(0)}%${over?" — 초과 "+fmt(st.exp-S.living)+" 원":""}</div>
+          <div class="progressbar${over?" color-red":""}" data-progress="${Math.round(pct*100)}">
+            <span style="transform:translate3d(${-(100-pct*100)}%,0,0)"></span></div>
+        </div></div></li>
+      ${diag.partialLedger ? `
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title text-color-red" style="font-size:12px;white-space:normal">
+          수입·지출이 모두 기록된 달만 실적으로 진단 — 현재는 기본값 적용 중</div></div></li>` : ""}
+    </ul>
+  </div>
+
+  <div class="block-title">이번 달 액션</div>
+  <div class="list inset">
+    <ul>
+      ${top && diag.alloc.repay>0 ? `
+      <li><a href="#" class="item-link item-content" onclick="goTab('debt');return false">
+        <div class="item-inner"><div class="item-title" style="font-size:14px;white-space:normal">
+          부채 상환 <b>${fmtMan(diag.surplus*diag.alloc.repay)}</b> → ${esc(top.name)}(${top.rate}%) 집중 투입</div></div></a></li>` : ""}
+      <li><a href="#" class="item-link item-content" onclick="goTab('invest');return false">
+        <div class="item-inner"><div class="item-title" style="font-size:14px;white-space:normal">
+          비상금 <b>${fmtMan(diag.surplus*diag.alloc.emergency)}</b> → 파킹통장 적립</div></div></a></li>
+      ${diag.alloc.invest>0 ? `
+      <li><a href="#" class="item-link item-content" onclick="goTab('invest');return false">
+        <div class="item-inner"><div class="item-title" style="font-size:14px;white-space:normal">
+          투자 <b>${fmtMan(diag.surplus*diag.alloc.invest)}</b> → ${S.risk} 포트 비중대로 매수</div></div></a></li>` : ""}
+    </ul>
+  </div>
+
+  <div class="block-title">요약</div>
+  <div class="list inset">
+    <ul>
+      <li><a href="#" class="item-link item-content" onclick="goTab('asset');return false">
+        <div class="item-inner"><div class="item-title">총자산</div>
+          <div class="item-after">${fmtMan(diag.assets)} 원${rebal?" · 리밸런싱 "+rebal+"건":""}</div></div></a></li>
+      <li><a href="#" class="item-link item-content" onclick="goTab('debt');return false">
+        <div class="item-inner"><div class="item-title">전체 부채 Zero</div>
+          <div class="item-after">${sim.debtFreeMonth?sim.debtFreeMonth+"개월 후":diag.totalDebt>0?"계획 필요":"완료"}</div></div></a></li>
+      <li><a href="#" class="item-link item-content" onclick="goTab('goal');return false">
+        <div class="item-inner"><div class="item-title">다음 버킷 달성</div>
+          <div class="item-after">${nextBucket?esc(nextBucket.name)+" · "+nextBucket.month+"개월":"—"}</div></div></a></li>
+    </ul>
+  </div>
+  <div class="block" style="height:8px"></div>`;
+}
+
+// ═══════════ 가계부 핸들러 ═══════════
+function upBase(k,v){ S[k] = (Number(v)||0)*10000; save(); render(); }
+function delLedger(id){
+  const j = S.ledger.findIndex(x=>x.id===id);
+  if(j>=0){ UNDO={arr:"ledger", idx:j, item:S.ledger[j]}; S.ledger.splice(j,1); }
+  save(); render(); toast("삭제되었습니다", true);
+}
+function upPort(i,k,v){ S.portfolio[i][k] = (k==='name'||k==='cat')? v : Number(v)||0; save(); render(); toast("수정되었습니다"); }
+function delPort(i){
+  UNDO={arr:"portfolio", idx:i, item:S.portfolio[i]};
+  S.portfolio.splice(i,1); save(); render(); toast("삭제되었습니다", true);
+}
+
+// ── 가계부 입력/수정 시트 (sheet-modal) ──
+let SHEET_TYPE = "지출";
+function catOptions(type, sel){
+  return (type==="지출"?EXP_CATS:INC_CATS).map(c=>`<option ${sel===c?"selected":""}>${c}</option>`).join("");
+}
+function openLedgerSheet(entryId){
+  const isEdit = entryId !== undefined;
+  const e = isEdit ? S.ledger.find(x=>x.id===entryId) : null;
+  if(isEdit && !e) return;
+  SHEET_TYPE = e ? e.type : "지출";
+  const dateStr = e ? e.date : LDATE;
+  const dt = new Date(dateStr+"T00:00:00");
+  const sheet = app.sheet.create({
+    swipeToClose: true, backdrop: true, destroyOnClose: true,
+    content: `
+    <div class="sheet-modal" style="height:auto; border-radius:16px 16px 0 0">
+      <div class="sheet-modal-inner">
+        <div class="page-content" style="padding-bottom:calc(24px + env(safe-area-inset-bottom))">
+          <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">
+            ${dt.getMonth()+1}월 ${dt.getDate()}일 (${WD[dt.getDay()]}) ${isEdit?"기록 수정":"기록"}</div>
+          <div class="block" style="margin:8px 16px 0">
+            <p class="segmented segmented-strong">
+              <button class="button ${SHEET_TYPE==='지출'?'button-active':''}" onclick="sheetType('지출')">지출</button>
+              <button class="button ${SHEET_TYPE==='수입'?'button-active':''}" onclick="sheetType('수입')">수입</button>
+              <span class="segmented-highlight"></span>
+            </p>
+          </div>
+          <div class="list inset" style="margin:8px 16px">
+            <ul>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">금액 (원)</div>
+                <div class="item-input-wrap">
+                  <input type="number" id="sh-amt" value="${e?e.amount:""}" placeholder="0"
+                    oninput="var p=document.getElementById('sh-prev'); if(p) p.textContent=this.value?Number(this.value).toLocaleString('ko-KR')+' 원':'';">
+                  <div id="sh-prev" class="text-color-primary" style="font-size:13px;font-weight:700;padding:4px 0">${e?Number(e.amount).toLocaleString('ko-KR')+' 원':''}</div>
+                </div></div></li>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">분류</div>
+                <div class="item-input-wrap input-dropdown-wrap">
+                  <select id="sh-cat">${catOptions(SHEET_TYPE, e&&e.cat)}</select>
+                </div></div></li>
+              ${isEdit?`
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">날짜</div>
+                <div class="item-input-wrap"><input type="date" id="sh-date" value="${e.date}"></div></div></li>`:""}
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">메모</div>
+                <div class="item-input-wrap"><input type="text" id="sh-memo" value="${e?esc(e.memo):""}" placeholder="선택"></div></div></li>
+            </ul>
+          </div>
+          <div class="block" style="margin:8px 16px">
+            <button class="button button-fill button-large" onclick="${isEdit?`saveLedgerEdit(${entryId})`:"addLedgerF7()"}">${isEdit?"저장":"추가"}</button>
+            ${isEdit?`<button class="button button-outline button-large color-red margin-top" onclick="delLedger(${entryId});app.sheet.close();">삭제</button>`:""}
+          </div>
+        </div>
+      </div>
+    </div>`
+  });
+  sheet.open();
+}
+function sheetType(t){ // 토글 시 입력값 유지 — 분류 옵션만 교체
+  SHEET_TYPE = t;
+  const sel = document.getElementById("sh-cat");
+  if(sel) sel.innerHTML = catOptions(t);
+  document.querySelectorAll(".sheet-modal .segmented .button").forEach(b=>{
+    b.classList.toggle("button-active", b.textContent===t);
+  });
+}
+function addLedgerF7(){
+  const g = id => document.getElementById(id);
+  const amount = Number(g("sh-amt") && g("sh-amt").value);
+  if(!amount || amount<=0){ toast("금액을 입력하세요"); return; }
+  S.ledger.push({
+    id: Date.now(), date: LDATE, type: SHEET_TYPE,
+    cat: (g("sh-cat") && g("sh-cat").value) || "기타",
+    amount, memo: (g("sh-memo") && g("sh-memo").value || "").trim(),
+  });
+  app.sheet.close();
+  save(); render(); toast("기록이 추가되었습니다");
+}
+function saveLedgerEdit(id){
+  const e = S.ledger.find(x=>x.id===id); if(!e) return;
+  const g = k => document.getElementById(k);
+  const amount = Number(g("sh-amt") && g("sh-amt").value);
+  if(!amount || amount<=0){ toast("금액을 입력하세요"); return; }
+  e.amount = amount; e.type = SHEET_TYPE;
+  e.cat = (g("sh-cat") && g("sh-cat").value) || e.cat;
+  e.memo = (g("sh-memo") && g("sh-memo").value || "").trim();
+  const nd = g("sh-date") && g("sh-date").value;
+  if(nd && /^\d{4}-\d{2}-\d{2}$/.test(nd)) e.date = nd;
+  app.sheet.close();
+  save(); render(); toast("수정되었습니다");
+}
+
+// ── 자산 항목 시트 ──
+function openPortSheet(i){
+  const pt = S.portfolio[i]; if(!pt) return;
+  const sheet = app.sheet.create({
+    swipeToClose: true, backdrop: true, destroyOnClose: true,
+    content: `
+    <div class="sheet-modal" style="height:auto; border-radius:16px 16px 0 0">
+      <div class="sheet-modal-inner">
+        <div class="page-content" style="padding-bottom:calc(24px + env(safe-area-inset-bottom))">
+          <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">자산 수정</div>
+          <div class="list inset" style="margin:8px 16px">
+            <ul>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">이름</div>
+                <div class="item-input-wrap"><input type="text" id="pt-name" value="${esc(pt.name)}"></div></div></li>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">분류</div>
+                <div class="item-input-wrap input-dropdown-wrap"><select id="pt-cat">
+                  ${["안전","위험","청약"].map(c=>`<option ${pt.cat===c?"selected":""}>${c}</option>`).join("")}
+                </select></div></div></li>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">평가액 (만원)</div>
+                <div class="item-input-wrap"><input type="number" id="pt-val" value="${pt.value/10000}"></div></div></li>
+              <li class="item-content item-input"><div class="item-inner">
+                <div class="item-title item-label">목표 비중 (%)</div>
+                <div class="item-input-wrap"><input type="number" id="pt-tgt" value="${pt.target}"></div></div></li>
+            </ul>
+          </div>
+          <div class="block" style="margin:8px 16px">
+            <button class="button button-fill button-large" onclick="savePortEdit(${i})">저장</button>
+            <button class="button button-outline button-large color-red margin-top" onclick="delPort(${i});app.sheet.close();">삭제</button>
+          </div>
+        </div>
+      </div>
+    </div>`
+  });
+  sheet.open();
+}
+function savePortEdit(i){
+  const pt = S.portfolio[i]; if(!pt) return;
+  const g = k => document.getElementById(k);
+  pt.name = (g("pt-name") && g("pt-name").value) || pt.name;
+  pt.cat  = (g("pt-cat") && g("pt-cat").value) || pt.cat;
+  pt.value  = Math.max(0, (Number(g("pt-val") && g("pt-val").value)||0)*10000);
+  pt.target = Math.max(0, Number(g("pt-tgt") && g("pt-tgt").value)||0);
+  app.sheet.close();
+  save(); render(); toast("수정되었습니다");
+}
+function addPortF7(){
+  S.portfolio.push({name:"새 자산", cat:"안전", value:0, target:0});
+  save(); render(); openPortSheet(S.portfolio.length-1);
+}
+
+// ═══════════ 가계부 탭 렌더 ═══════════
+function renderLedger(){
+  const el = document.getElementById("ledger-content"); if(!el) return;
+  const diag = diagnose();
+  const st = ledgerStats(LMONTH);
+  const inc = st.inc, exp = st.exp;
+  const pct = S.living>0 ? Math.min(exp/S.living,1) : 0;
+  const over = S.living>0 && exp>S.living;
+  const [yy,mm] = LMONTH.split("-");
+
+  // 달력 셀
+  const y=Number(yy), m=Number(mm);
+  const daysIn = new Date(y,m,0).getDate(), firstW = new Date(y,m-1,1).getDay();
+  const sums = {};
+  monthEntries().forEach(e=>{
+    sums[e.date] = sums[e.date] || {ex:0,inc:0};
+    e.type==="지출" ? sums[e.date].ex+=e.amount : sums[e.date].inc+=e.amount;
+  });
+  let cells = WD.map(w=>`<div class="wd2">${w}</div>`).join("");
+  for(let b=0;b<firstW;b++) cells += "<div></div>";
+  for(let d=1;d<=daysIn;d++){
+    const ds = LMONTH+"-"+pad2(d), sm = sums[ds];
+    cells += `<div class="day ${ds===LDATE?'sel':''} ${ds===todayStr?'today':''}" onclick="selectDay('${ds}')">
+      <span class="num">${d}</span>
+      ${sm&&sm.ex?`<span class="ex">-${shCal(sm.ex)}</span>`:""}
+      ${sm&&sm.inc?`<span class="in">+${shCal(sm.inc)}</span>`:""}</div>`;
+  }
+
+  // 선택일 내역
+  const dt = new Date(LDATE+"T00:00:00");
+  const day = S.ledger.filter(e=>e.date===LDATE).sort((a,b)=>b.id-a.id);
+
+  // 카테고리별
+  const expEnts = monthEntries().filter(e=>e.type==="지출");
+  const byCat = {}; expEnts.forEach(e=>{ byCat[e.cat]=(byCat[e.cat]||0)+e.amount; });
+  const catTotal = expEnts.reduce((s2,e)=>s2+e.amount,0);
+
+  el.innerHTML = `
+  <div class="block" style="display:flex;justify-content:center;gap:16px;align-items:center;margin:16px 0 0">
+    <button class="button button-small button-tonal" style="width:44px" onclick="shiftMonth(-1)">‹</button>
+    <b style="font-size:17px">${yy}년 ${Number(mm)}월</b>
+    <button class="button button-small button-tonal" style="width:44px" onclick="shiftMonth(1)">›</button>
+  </div>
+
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px;margin-top:12px">
+    <div class="row text-align-center">
+      <div class="col"><div style="font-size:11px;color:var(--f7-list-item-after-text-color)">수입</div>
+        <div class="text-color-primary" style="font-weight:800;font-size:16px">+${fmt(inc)}</div></div>
+      <div class="col"><div style="font-size:11px;color:var(--f7-list-item-after-text-color)">지출</div>
+        <div style="font-weight:800;font-size:16px">-${fmt(exp)}</div></div>
+      <div class="col"><div style="font-size:11px;color:var(--f7-list-item-after-text-color)">수지</div>
+        <div style="font-weight:800;font-size:16px;color:${inc-exp>=0?'#17c167':'#f04452'}">${inc-exp>=0?'+':''}${fmt(inc-exp)}</div></div>
+    </div>
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin:14px 0 6px">
+      생활비 예산 대비 ${(pct*100).toFixed(0)}%${over?" — 초과 "+fmt(exp-S.living)+" 원":""}</div>
+    <div class="progressbar${over?" color-red":""}" data-progress="${Math.round(pct*100)}">
+      <span style="transform:translate3d(${-(100-pct*100)}%,0,0)"></span></div>
+  </div>
+
+  <div class="block" style="margin:16px 0 8px"><div class="cal">${cells}</div></div>
+
+  <div class="block-title">${dt.getMonth()+1}월 ${dt.getDate()}일 (${WD[dt.getDay()]})</div>
+  ${day.length ? `
+  <div class="list media-list inset">
+    <ul>
+      ${day.map(e=>`
+      <li class="swipeout">
+        <div class="item-content swipeout-content" onclick="openLedgerSheet(${e.id})" style="cursor:pointer">
+          <div class="item-media">
+            <div class="ric-f7" style="color:${e.type==='수입'?'var(--f7-theme-color)':'#191f28'};background:${e.type==='수입'?'rgba(var(--f7-theme-color-rgb),.1)':'#f2f3f5'}">${e.type==='수입'?'＋':'−'}</div></div>
+          <div class="item-inner">
+            <div class="item-title-row">
+              <div class="item-title">${esc(e.memo||e.cat)}</div>
+              <div class="item-after" style="font-weight:700;color:${e.type==='수입'?'var(--f7-theme-color)':'inherit'}">${e.type==='수입'?'+':'-'}${fmt(e.amount)} 원</div></div>
+            <div class="item-subtitle" style="font-size:13px;color:var(--f7-list-item-after-text-color)">${esc(e.cat)}</div>
+          </div>
+        </div>
+        <div class="swipeout-actions-right">
+          <a href="#" class="color-red" onclick="delLedger(${e.id});return false">삭제</a>
+        </div>
+      </li>`).join("")}
+    </ul>
+  </div>` : `<div class="block" style="color:var(--f7-list-item-after-text-color);font-size:14px">이 날짜의 기록이 없습니다. 우측 하단 ＋로 추가하세요.</div>`}
+
+  ${catTotal>0 ? `
+  <div class="block-title">카테고리별 지출</div>
+  <div class="list inset">
+    <ul>
+      ${Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([c,v])=>`
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="font-size:14px;width:90px;flex-shrink:0">${esc(c)}</div>
+        <div style="flex:1;margin:0 12px"><div class="progressbar" data-progress="${Math.round(v/catTotal*100)}">
+          <span style="transform:translate3d(${-(100-v/catTotal*100)}%,0,0)"></span></div></div>
+        <div class="item-after" style="font-weight:700">${fmt(v)}</div></div></li>`).join("")}
+    </ul>
+  </div>` : ""}
+
+  <div class="block-title">내 자산 정리
+    <a href="#" class="link" onclick="addPortF7();return false">추가</a></div>
+  <div class="block inset" style="margin-bottom:0"><div class="big-num">${fmt(portTotal())} 원</div></div>
+  ${["안전","위험","청약"].map(cat=>{
+    const items = S.portfolio.map((pt,i)=>({pt,i})).filter(x=>x.pt.cat===cat);
+    if(!items.length) return "";
+    const sub = items.reduce((s2,x)=>s2+x.pt.value,0);
+    const label = {안전:"현금·예금·안전자산", 위험:"주식·투자자산", 청약:"청약"}[cat];
+    return `
+    <div class="block-title block-title-small" style="display:flex;justify-content:space-between">
+      <span>${label}</span><span>${fmt(sub)} 원</span></div>
+    <div class="list inset">
+      <ul>
+        ${items.map(({pt,i})=>`
+        <li class="item-content">
+          <div class="item-media"><div class="ric-f7" style="color:${CAT_COLOR[cat]};background:color-mix(in srgb, ${CAT_COLOR[cat]} 10%, #fff)">${CAT_GLYPH[cat]}</div></div>
+          <div class="item-inner">
+            <a href="#" class="item-title link" style="font-weight:600" onclick="openPortSheet(${i});return false">${esc(pt.name)}</a>
+            <div class="item-after" style="display:flex;align-items:center;gap:4px">
+              <input type="number" value="${pt.value/10000}" style="width:88px;text-align:right;padding:8px;border:1px solid var(--f7-list-item-border-color);border-radius:8px;background:var(--f7-list-bg-color)"
+                onchange="upPort(${i},'value',this.value*10000)">
+              <span style="font-size:13px;color:var(--f7-list-item-after-text-color)">만원</span></div>
+          </div>
+        </li>`).join("")}
+      </ul>
+    </div>`;
+  }).join("")}
+
+  <div class="block-title">기본값 (기록 없는 달의 진단 기준)</div>
+  <div class="list inset">
+    <ul>
+      ${[["income","기본 소득"],["living","생활비 예산"],["fixedRepay","고정 상환(기타)"]].map(([k,l])=>`
+      <li class="item-content item-input"><div class="item-inner">
+        <div class="item-title item-label">${l} (만원)</div>
+        <div class="item-input-wrap"><input type="number" value="${S[k]/10000}" onchange="upBase('${k}',this.value)"></div></div></li>`).join("")}
+    </ul>
+  </div>
+  <div class="block" style="height:64px"></div>`;
+}
+
+function upDca(v){ S.dcaMonths = Math.max(1, Number(v)||1); save(); render(); }
+
+// ═══════════ 자산 탭 렌더 ═══════════
+function renderAsset(){
+  const el = document.getElementById("asset-content"); if(!el) return;
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const t = portTotal();
+
+  // 배분 현황 (분류별 현재 vs 목표)
+  const cats = ["안전","위험","청약"].map(c=>{
+    const v = S.portfolio.filter(pt=>pt.cat===c).reduce((s2,pt)=>s2+pt.value,0);
+    const tg = S.portfolio.filter(pt=>pt.cat===c).reduce((s2,pt)=>s2+pt.target,0);
+    return {c, v, tg};
+  });
+
+  // 리밸런싱 플랜 (갭 5만 이상, 큰 순)
+  const tgtSum = S.portfolio.reduce((s2,pt)=>s2+pt.target,0);
+  const need = S.portfolio.map((pt,i)=>({pt,i, gap: t*pt.target/100 - pt.value}))
+    .filter(x=>Math.abs(x.gap)>=50000)
+    .sort((a,b)=>Math.abs(b.gap)-Math.abs(a.gap));
+
+  // 5년 시나리오 (로직 동일)
+  const base = portBaseReturn();
+  const scen = [
+    {n:"Bull", r:base+0.04, c:"#17c167"},
+    {n:"Base", r:base,      c:"#4834d4"},
+    {n:"Bear", r:Math.max(base-0.04,0.005), c:"#f04452"},
+  ];
+  const monthly = diag.surplus*diag.alloc.invest;
+  const M=60, W2=560, H2=150;
+  const runs = scen.map(sc=>{
+    let v=t; const arr=[v];
+    for(let m=1;m<=M;m++){ v=v*(1+sc.r/12)+monthly; arr.push(v); }
+    return {...sc, arr};
+  });
+  const maxV = Math.max(...runs.map(r=>r.arr[M]),1);
+  const minV = Math.min(...runs.map(r=>r.arr[0]),maxV*0.9);
+  const yOf = v => H2 - (v-minV)/(maxV-minV)*(H2-14) - 2;
+
+  el.innerHTML = `
+  <div class="block-title" style="margin-top:24px">배분 현황
+    <span style="font-size:12px;font-weight:400;color:var(--f7-list-item-after-text-color)">— 잔액 수정·추가는 가계부 탭</span></div>
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
+    <div class="stack">${cats.map(x=>t>0&&x.v>0?`
+      <div style="width:${x.v/t*100}%;background:${CAT_COLOR[x.c]}"></div>`:"").join("")}</div>
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-top:8px">
+      ${cats.map(x=>`<span style="color:${CAT_COLOR[x.c]};font-weight:700">■</span> ${x.c} ${t>0?(x.v/t*100).toFixed(0):0}% <span style="opacity:.7">/ 목표 ${x.tg.toFixed(0)}%</span>`).join(" &nbsp; ")}</div>
+  </div>
+  <div class="list inset" style="margin-top:8px">
+    <ul>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">총자산</div>
+        <div class="item-after"><b>${fmt(t)} 원</b></div></div></li>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">가중 기대수익 (가정)</div>
+        <div class="item-after"><b>연 ${(base*100).toFixed(1)}%</b></div></div></li>
+    </ul>
+  </div>
+
+  <div class="block-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>리밸런싱 플랜</span>
+    <span style="font-weight:400;font-size:13px;display:flex;align-items:center;gap:4px">분할
+      <input type="number" value="${S.dcaMonths}" onchange="upDca(this.value)"
+        style="width:52px;padding:6px;text-align:center;border:1px solid var(--f7-list-item-border-color);border-radius:8px;background:var(--f7-list-bg-color)">개월</span></div>
+  ${need.length ? `
+  <div class="list media-list inset">
+    <ul>
+      ${need.map(({pt,i,gap})=>`
+      <li><a href="#" class="item-link item-content" onclick="openPortSheet(${i});return false">
+        <div class="item-media">
+          <div class="ric-f7" style="color:${CAT_COLOR[pt.cat]};background:color-mix(in srgb, ${CAT_COLOR[pt.cat]} 10%, #fff)">${CAT_GLYPH[pt.cat]}</div></div>
+        <div class="item-inner">
+          <div class="item-title-row">
+            <div class="item-title">${esc(pt.name)}</div>
+            <div class="item-after" style="font-weight:700;color:${gap>0?'#17c167':'#f04452'}">${gap>0?'매수':'매도'} ${fmtMan(Math.abs(gap))} 원</div></div>
+          <div class="item-subtitle" style="font-size:13px;color:var(--f7-list-item-after-text-color)">
+            현재 ${t>0?(pt.value/t*100).toFixed(1):0}% → 목표 ${pt.target}%${gap>0?` · 월 ${fmtMan(gap/S.dcaMonths)} × ${S.dcaMonths}회`:""}</div>
+        </div>
+      </a></li>`).join("")}
+    </ul>
+  </div>` : `<div class="block" style="color:var(--f7-list-item-after-text-color);font-size:14px">모든 항목이 목표 비중을 유지하고 있습니다.</div>`}
+  ${Math.abs(tgtSum-100)>0.5 ? `
+  <div class="block text-color-red" style="font-size:13px;font-weight:600">목표 비중 합계 ${tgtSum.toFixed(0)}% — 100%가 되도록 각 항목에서 조정 필요</div>` : ""}
+
+  <div class="block-title">5년 시나리오</div>
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
+    <svg viewBox="0 0 ${W2+90} ${H2+20}" style="width:100%">
+      ${runs.map(r=>`
+        <polyline points="${r.arr.map((v,i)=>`${i/M*W2},${yOf(v)}`).join(" ")}"
+          fill="none" stroke="${r.c}" stroke-width="2.5"/>
+        <text x="${W2+6}" y="${yOf(r.arr[M])+4}" font-size="12" font-weight="700" fill="${r.c}">
+          ${r.n} ${fmtMan(r.arr[M])}</text>`).join("")}
+      <text x="0" y="${H2+16}" font-size="11" fill="#8b95a1">현재 ${fmtMan(t)}</text>
+      <text x="${W2-24}" y="${H2+16}" font-size="11" fill="#8b95a1">5년</text>
+    </svg>
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-top:8px">
+      Base 연 ${(base*100).toFixed(1)}% (포트 가중) · Bull/Bear ±4%p · 월 ${fmtMan(monthly)} 적립 가정 · 참고용, 수익 보장 아님</div>
+  </div>
+  <div class="block" style="height:24px"></div>`;
+}
+
+function upNum(k,v){ S[k] = Math.max(0, Number(v)||0); save(); render(); }
+function setRisk(r){ S.risk = r; save(); render(); }
+function setSort(k,v){ S[k] = v; save(); render(); }
+
+// ── 부채 시트 ──
+function openDebtSheet(i){
+  const d = S.debts[i]; if(!d) return;
+  const diag = diagnose();
+  const sim = simulate(diag, blendedReturn(S.risk));
+  const pd = sim.perDebt.find(x=>x._i===i);
+  const rank = [...S.debts].map((x,j)=>({j,rate:x.rate})).sort((a,b)=>b.rate-a.rate).findIndex(o=>o.j===i)+1;
+  const monthlyInt = d.balance*d.rate/100/12;
+  const refiSave = (d.rate>=15 && d.rate>S.refiRate) ? d.balance*(d.rate-S.refiRate)/100 : null;
+  app.sheet.create({ swipeToClose:true, backdrop:true, destroyOnClose:true, content: `
+  <div class="sheet-modal" style="height:auto; border-radius:16px 16px 0 0">
+    <div class="sheet-modal-inner"><div class="page-content" style="padding-bottom:calc(24px + env(safe-area-inset-bottom))">
+      <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">부채 상세</div>
+      <div class="list inset" style="margin:8px 16px">
+        <ul>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">월 발생 이자</div><div class="item-after"><b>${fmt(Math.round(monthlyInt))} 원</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">상환 우선순위</div><div class="item-after"><b>${rank}순위 (고금리 우선)</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">상환 완료 예상</div><div class="item-after"><b>${pd&&pd.payoff?pd.payoff+"개월 후":"현재 배분으로 미정"}</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">완료까지 누적 이자</div><div class="item-after"><b>${pd?fmt(Math.round(pd.interest))+" 원":"—"}</b></div></div></li>
+          ${refiSave!==null?`<li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">${S.refiRate}% 대환 시 연 절감</div><div class="item-after"><b style="color:#17c167">약 ${fmt(Math.round(refiSave))} 원</b></div></div></li>`:""}
+        </ul>
+      </div>
+      <div class="list inset" style="margin:8px 16px">
+        <ul>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">이름</div>
+            <div class="item-input-wrap"><input type="text" id="db-name" value="${esc(d.name)}"></div></div></li>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">잔액 (만원)</div>
+            <div class="item-input-wrap"><input type="number" id="db-bal" value="${d.balance/10000}"></div></div></li>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">연 금리 (%)</div>
+            <div class="item-input-wrap"><input type="number" id="db-rate" value="${d.rate}"></div></div></li>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">월 약정 상환 (만원)</div>
+            <div class="item-input-wrap"><input type="number" id="db-min" value="${(d.minPay||0)/10000}"></div></div></li>
+        </ul>
+      </div>
+      <div class="block" style="margin:0 16px;font-size:12px;color:var(--f7-list-item-after-text-color)">약정 상환액은 잉여현금에서 자동 차감되고 시뮬레이션에 매달 반영됩니다.</div>
+      <div class="block" style="margin:8px 16px">
+        <button class="button button-fill button-large" onclick="saveDebtEdit(${i})">저장</button>
+        <button class="button button-outline button-large color-red margin-top" onclick="delDebt(${i});app.sheet.close();">삭제</button>
+      </div>
+    </div></div>
+  </div>`}).open();
+}
+function saveDebtEdit(i){
+  const d = S.debts[i]; if(!d) return;
+  const g = k => document.getElementById(k);
+  d.name = (g("db-name") && g("db-name").value) || d.name;
+  d.balance = Math.max(0,(Number(g("db-bal") && g("db-bal").value)||0)*10000);
+  d.rate = Math.max(0,Number(g("db-rate") && g("db-rate").value)||0);
+  d.minPay = Math.max(0,(Number(g("db-min") && g("db-min").value)||0)*10000);
+  app.sheet.close(); save(); render(); toast("수정되었습니다");
+}
+function addDebtF7(){
+  S.debts.push({name:"새 부채", balance:1000000, rate:5, minPay:0});
+  save(); render(); openDebtSheet(S.debts.length-1);
+}
+function delDebt(i){
+  UNDO={arr:"debts", idx:i, item:S.debts[i]};
+  S.debts.splice(i,1); save(); render(); toast("삭제되었습니다", true);
+}
+
+// ── 버킷 시트 ──
+function openBucketSheet(i){
+  const b = S.bucket[i]; if(!b) return;
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const sim = simulate(diag, ret);
+  const simBear = simulate(diag, Math.max(ret-0.04,0.005));
+  const sorted = S.bucket.map((x,j)=>({...x, idx:j})).sort((a,c)=>a.cost-c.cost);
+  let cum=0, month=null, monthBear=null, rank=0, cumNeed=0;
+  for(let k=0;k<sorted.length;k++){
+    cum += sorted[k].cost;
+    if(sorted[k].idx===i){
+      rank=k+1; cumNeed=cum;
+      const hit = sim.series.find(pt=>pt.invest>=cum); month = hit?hit.m:null;
+      const hitB = simBear.series.find(pt=>pt.invest>=cum); monthBear = hitB?hitB.m:null;
+      break;
+    }
+  }
+  const monthlySave = diag.surplus*diag.alloc.invest;
+  app.sheet.create({ swipeToClose:true, backdrop:true, destroyOnClose:true, content: `
+  <div class="sheet-modal" style="height:auto; border-radius:16px 16px 0 0">
+    <div class="sheet-modal-inner"><div class="page-content" style="padding-bottom:calc(24px + env(safe-area-inset-bottom))">
+      <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">버킷리스트 · 달성 순서 ${rank}번째</div>
+      <div class="list inset" style="margin:8px 16px">
+        <ul>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">달성 예상 (Base)</div><div class="item-after"><b>${month?month+"개월 후":"30년 내 미달성"}</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">보수 가정 (-4%p)</div><div class="item-after"><b>${monthBear?monthBear+"개월 후":"—"}</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">누적 필요액</div><div class="item-after"><b>${fmt(cumNeed)} 원</b></div></div></li>
+          <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">월 투자 배분</div><div class="item-after"><b>${fmt(Math.round(monthlySave))} 원</b></div></div></li>
+        </ul>
+      </div>
+      <div class="list inset" style="margin:8px 16px">
+        <ul>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">이름</div>
+            <div class="item-input-wrap"><input type="text" id="bk-name" value="${esc(b.name)}"></div></div></li>
+          <li class="item-content item-input"><div class="item-inner"><div class="item-title item-label">금액 (만원)</div>
+            <div class="item-input-wrap"><input type="number" id="bk-cost" value="${b.cost/10000}"></div></div></li>
+        </ul>
+      </div>
+      <div class="block" style="margin:8px 16px">
+        <button class="button button-fill button-large" onclick="saveBucketEdit(${i})">저장</button>
+        <button class="button button-outline button-large color-red margin-top" onclick="delBucket(${i});app.sheet.close();">삭제</button>
+      </div>
+    </div></div>
+  </div>`}).open();
+}
+function saveBucketEdit(i){
+  const b = S.bucket[i]; if(!b) return;
+  const g = k => document.getElementById(k);
+  b.name = (g("bk-name") && g("bk-name").value) || b.name;
+  b.cost = Math.max(0,(Number(g("bk-cost") && g("bk-cost").value)||0)*10000);
+  app.sheet.close(); save(); render(); toast("수정되었습니다");
+}
+function addBucketF7(){
+  S.bucket.push({name:"새 목표", cost:1000000});
+  save(); render(); openBucketSheet(S.bucket.length-1);
+}
+function delBucket(i){
+  UNDO={arr:"bucket", idx:i, item:S.bucket[i]};
+  S.bucket.splice(i,1); save(); render(); toast("삭제되었습니다", true);
+}
+
+// ── 백업 도구 ──
+function importJSON(){
+  const inp = document.createElement("input");
+  inp.type = "file"; inp.accept = "application/json";
+  inp.onchange = () => {
+    const f = inp.files[0]; if(!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      try {
+        const parsed = JSON.parse(r.result);
+        if(!parsed || typeof parsed!=="object") throw new Error("bad");
+        S = migrate(parsed); save(); render(); toast("백업을 불러왔습니다");
+      } catch(e){ app.dialog.alert("잘못된 백업 파일입니다 — 적용하지 않았습니다."); }
+    };
+    r.readAsText(f);
+  };
+  inp.click();
+}
+function resetAll(){
+  app.dialog.confirm("모든 데이터를 초기값으로 되돌릴까요?", ()=>{
+    S = migrate(null); S.example = true; save(); render(); toast("초기화되었습니다");
+  });
+}
+
+// ═══════════ 부채 탭 렌더 ═══════════
+function renderDebt(){
+  const el = document.getElementById("debt-content"); if(!el) return;
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const sim = simulate(diag, ret);
+  const refi = refiAnalysis(diag, ret);
+  const repayOrder = [...S.debts].sort((a,b)=>b.rate-a.rate).map(d=>`${esc(d.name)}(${d.rate}%)`).join(" → ");
+
+  let disp = S.debts.map((d,i)=>({d,i}));
+  if(S.sortDebt==="rate") disp.sort((a,b)=>b.d.rate-a.d.rate);
+  else if(S.sortDebt==="balance") disp.sort((a,b)=>b.d.balance-a.d.balance);
+
+  // 36개월 차트
+  const N=36, W=560, H=140;
+  const pts = sim.series.slice(0,N).map(pp=>({debt:pp.debt, asset:pp.invest+pp.emergency}));
+  const maxV = Math.max(...pts.map(pp=>Math.max(pp.debt,pp.asset)),1);
+  const line = key => pts.map((pp,i2)=>`${i2/(N-1)*W},${H-(pp[key]/maxV)*(H-10)}`).join(" ");
+
+  el.innerHTML = `
+  <div class="block-title" style="margin-top:24px;display:flex;justify-content:space-between;align-items:center">
+    <span>부채 포트폴리오</span>
+    <a href="#" class="link" onclick="addDebtF7();return false">추가</a></div>
+  <div class="block" style="margin:0 16px 8px">
+    <p class="segmented segmented-strong">
+      ${[["rate","금리순"],["balance","잔액순"],["custom","직접"]].map(([k,l])=>
+        `<button class="button ${S.sortDebt===k?'button-active':''}" onclick="setSort('sortDebt','${k}')">${l}</button>`).join("")}
+      <span class="segmented-highlight"></span>
+    </p>
+  </div>
+  ${S.debts.length ? `
+  <div class="list media-list inset ${S.sortDebt==='custom'?'sortable sortable-enabled':''}" data-key="debts">
+    <ul>
+      ${disp.map(({d,i})=>{
+        const col = d.rate>=15?'#f04452':d.rate>=5?'#f5a623':'#17c167';
+        const pd = sim.perDebt.find(x=>x._i===i);
+        return `
+      <li class="swipeout">
+        <div class="item-content swipeout-content" onclick="openDebtSheet(${i})" style="cursor:pointer">
+          <div class="item-media"><div class="ric-f7" style="color:${col};background:color-mix(in srgb, ${col} 10%, #fff)">%</div></div>
+          <div class="item-inner">
+            <div class="item-title-row">
+              <div class="item-title">${esc(d.name)}</div>
+              <div class="item-after" style="font-weight:700">${fmtMan(d.balance)} 원</div></div>
+            <div class="item-subtitle" style="font-size:13px;color:var(--f7-list-item-after-text-color)">
+              연 ${d.rate}% · 월 이자 ${fmtMan(d.balance*d.rate/100/12)} 원${d.minPay?` · 약정 ${fmtMan(d.minPay)}/월`:""}</div>
+            <div class="item-text" style="font-size:12px;color:${col}">${pd&&pd.payoff?pd.payoff+'개월 후 완료':'상환 계획 필요'}</div>
+          </div>
+        </div>
+        ${S.sortDebt==='custom'?'<div class="sortable-handler"></div>':''}
+        <div class="swipeout-actions-right"><a href="#" class="color-red" onclick="delDebt(${i});return false">삭제</a></div>
+      </li>`;}).join("")}
+    </ul>
+  </div>` : '<div class="block" style="color:var(--f7-list-item-after-text-color)">등록된 부채가 없습니다.</div>'}
+
+  <div class="block-title">상환 전략 · 대환 분석</div>
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-bottom:4px">상환 순서 (고금리 우선)</div>
+    <div style="font-size:14px;font-weight:700;margin-bottom:14px">${repayOrder||"부채 없음"}</div>
+    ${refi ? `
+    <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--f7-list-item-after-text-color);margin-bottom:8px">대환 금리 가정
+      <input type="number" value="${S.refiRate}" onchange="upNum('refiRate',this.value)"
+        style="width:56px;padding:6px;text-align:center;border:1px solid var(--f7-list-item-border-color);border-radius:8px">
+      % (청년 햇살론 등 정부 보증 수준)</div>
+    <div class="row">
+      <div class="col" style="background:#fff;border:1px solid var(--f7-list-item-border-color);border-radius:12px;padding:12px;font-size:13px">
+        <div style="font-weight:700;margin-bottom:6px">기존 부채 유지</div>
+        <div>고금리 상환 완료 <b>${refi.poA}개월</b></div>
+        <div>예상 총이자 <b>${fmtMan(refi.intA)} 원</b></div>
+      </div>
+      <div class="col" style="background:rgba(var(--f7-theme-color-rgb),.08);border:1px solid var(--f7-theme-color);border-radius:12px;padding:12px;font-size:13px">
+        <div class="text-color-primary" style="font-weight:700;margin-bottom:6px">${S.refiRate}%로 대환 시</div>
+        <div>고금리 상환 완료 <b>${refi.poB}개월</b></div>
+        <div>총이자 <b>${fmtMan(refi.intB)} 원</b> · 연 절감 <b>${fmtMan(refi.annualSave)} 원</b></div>
+      </div>
+    </div>
+    <div class="block-strong" style="background:var(--f7-theme-color);color:#fff;border-radius:12px;padding:12px;margin:12px 0 0;text-align:center;font-weight:700;font-size:14px">${refi.recommend}</div>
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-top:10px">실제 대환 시 중도상환수수료·취급비용이 발생할 수 있고 자격 조건 확인이 필요합니다. 상환부담률은 간이 지표로 금융권 규제 DSR과 다릅니다.</div>`
+    : '<div style="font-size:13px;color:var(--f7-list-item-after-text-color)">금리 15% 이상 고금리 부채가 없어 대환 분석 대상이 없습니다.</div>'}
+  </div>
+
+  <div class="block-title">36개월 시뮬레이션</div>
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
+    <svg viewBox="0 0 ${W} ${H+20}" style="width:100%">
+      <polyline points="${line('debt')}" fill="none" stroke="#f04452" stroke-width="2.5"/>
+      <polyline points="${line('asset')}" fill="none" stroke="#6c5ce7" stroke-width="2.5"/>
+      <text x="0" y="${H+16}" font-size="11" fill="#8b95a1">현재</text>
+      <text x="${W-30}" y="${H+16}" font-size="11" fill="#8b95a1">3년</text>
+    </svg>
+    <div style="font-size:12px;color:var(--f7-list-item-after-text-color)">
+      <span style="color:#f04452;font-weight:700">—</span> 부채 잔액 &nbsp;
+      <span style="color:#6c5ce7;font-weight:700">—</span> 누적 저축·투자 (연 ${(ret*100).toFixed(1)}% 가정)</div>
+    <div style="margin-top:10px">
+      ${sim.events.slice(0,6).map(e=>`
+      <div style="display:flex;gap:8px;align-items:center;font-size:14px;min-height:32px">
+        <span class="badge color-primary" style="min-width:60px">${e.month}개월</span>${esc(e.label)}</div>`).join("")}
+      ${sim.debtFreeMonth===null && diag.totalDebt>0 ? '<div class="text-color-red" style="font-size:13px;font-weight:600">현재 배분으로는 30년 내 전액 상환 불가 — 잉여현금 확보 필요</div>' : ''}
+    </div>
+  </div>
+  <div class="block" style="height:24px"></div>`;
+}
+
+// ═══════════ 투자 탭 렌더 ═══════════
+function renderInvest(){
+  const el = document.getElementById("invest-content"); if(!el) return;
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const P = PORTFOLIOS[S.risk];
+  const emTarget = S.living*S.emergencyMonths;
+  const emPct = emTarget>0 ? Math.min(S.emergencyNow/emTarget,1) : 0;
+  const emMonthly = diag.surplus*diag.alloc.emergency;
+  const emRemain = Math.max(emTarget-S.emergencyNow,0);
+  const emMonths = emRemain<=0 ? 0 : (emMonthly>0 ? Math.ceil(emRemain/emMonthly) : null);
+  const stageDescMap = {비상:"공격적 상환", 주의:"균형 상환", 양호:"적극적 투자"};
+
+  el.innerHTML = `
+  <div class="block-title" style="margin-top:24px">현금흐름 자동 배분
+    <span class="text-color-primary" style="font-size:13px">${stageDescMap[diag.stage]}</span></div>
+  <div class="block" style="margin:0 16px;font-size:12px;color:var(--f7-list-item-after-text-color)">월 잉여현금 ${fmtMan(diag.surplus)} 원 기준</div>
+  <div class="block" style="display:flex;gap:8px;margin:8px 16px">
+    ${[["부채 상환",diag.alloc.repay,"#4834d4"],["비상금",diag.alloc.emergency,"#6c5ce7"],["투자",diag.alloc.invest,"#a29bfe"]].map(([nm,r,col])=>`
+    <div style="flex:${r||0.12};background:${col};color:#fff;border-radius:16px;padding:16px 12px;min-width:72px">
+      <div style="font-size:11px;opacity:.85">${nm} ${(r*100).toFixed(0)}%</div>
+      <div style="font-weight:800;font-size:16px;margin-top:2px">${fmtMan(diag.surplus*r)}</div></div>`).join("")}
+  </div>
+
+  <div class="block-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>투자 포트폴리오</span></div>
+  <div class="block" style="margin:0 16px 8px">
+    <p class="segmented segmented-strong">
+      ${Object.keys(PORTFOLIOS).map(r=>`<button class="button ${S.risk===r?'button-active':''}" onclick="setRisk('${r}')">${r}</button>`).join("")}
+      <span class="segmented-highlight"></span>
+    </p>
+  </div>
+  ${diag.alloc.invest===0
+    ? '<div class="block text-color-red" style="font-size:13px;font-weight:600">비상단계에서는 투자 배분이 0% — 고금리 부채 상환이 우선입니다.</div>'
+    : `
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px;display:flex;gap:24px;align-items:center;flex-wrap:wrap">
+    <div class="donut-f7" style="background:conic-gradient(
+      #a29bfe 0 ${P.saving*360}deg,
+      #6c5ce7 ${P.saving*360}deg ${(P.saving+P.bond)*360}deg,
+      #4834d4 ${(P.saving+P.bond)*360}deg 360deg)">
+      <div class="hole"><b>${(ret*100).toFixed(1)}%</b><span>기대수익/년</span></div>
+    </div>
+    <div style="flex:1;min-width:180px;display:grid;gap:10px">
+      ${Object.keys(P).map(k=>`
+      <div style="display:flex;gap:8px;align-items:center;font-size:14px">
+        <span style="width:10px;height:10px;border-radius:4px;background:${ {saving:'#a29bfe',bond:'#6c5ce7',equity:'#4834d4'}[k] };flex-shrink:0"></span>
+        <span>${ASSET_LABEL[k]} ${(P[k]*100).toFixed(0)}%</span>
+        <b style="margin-left:auto">${fmtMan(diag.surplus*diag.alloc.invest*P[k])}/월</b></div>`).join("")}
+    </div>
+    <div style="width:100%;font-size:12px;color:var(--f7-list-item-after-text-color)">수익률은 단순 가정치(예적금 3 / 채권 4 / 주식 7%) — 투자 권유 아님</div>
+  </div>`}
+
+  <div class="block-title">비상금 목표</div>
+  <div class="list inset">
+    <ul>
+      <li class="item-content item-input"><div class="item-inner">
+        <div class="item-title item-label">현재 비상금 (만원)</div>
+        <div class="item-input-wrap"><input type="number" value="${S.emergencyNow/10000}" onchange="upBase('emergencyNow',this.value)"></div></div></li>
+      <li class="item-content item-input"><div class="item-inner">
+        <div class="item-title item-label">목표 (생활비 × 개월)</div>
+        <div class="item-input-wrap"><input type="number" value="${S.emergencyMonths}" onchange="upNum('emergencyMonths',this.value)"></div></div></li>
+      <li class="item-content"><div class="item-inner item-cell"><div style="width:100%">
+        <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-bottom:6px">
+          ${fmt(S.emergencyNow)} / ${fmt(emTarget)} 원 (${(emPct*100).toFixed(0)}%)
+          — <b class="text-color-primary">${emMonths===0?"달성 완료":emMonths?`월 ${fmtMan(emMonthly)} 적립 시 ${emMonths}개월 후 달성`:"적립액 없음"}</b></div>
+        <div class="progressbar" data-progress="${Math.round(emPct*100)}">
+          <span style="transform:translate3d(${-(100-emPct*100)}%,0,0)"></span></div>
+      </div></div></li>
+    </ul>
+  </div>
+  <div class="block" style="height:24px"></div>`;
+}
+
+// ═══════════ 목표 탭 렌더 ═══════════
+function renderGoal(){
+  const el = document.getElementById("goal-content"); if(!el) return;
+  const diag = diagnose();
+  const ret = blendedReturn(S.risk);
+  const sim = simulate(diag, ret);
+  const simBear = simulate(diag, Math.max(ret-0.04,0.005));
+
+  let cum=0;
+  const rows = S.bucket.map((b,j)=>({...b, idx:j})).sort((a,c)=>a.cost-c.cost).map(b=>{
+    cum += b.cost;
+    const hit = sim.series.find(pp=>pp.invest>=cum);
+    const hitB = simBear.series.find(pp=>pp.invest>=cum);
+    return {...b, month: hit?hit.m:null, monthBear: hitB?hitB.m:null};
+  });
+  const rankOf={}, infoOf={};
+  rows.forEach((b,r)=>{ rankOf[b.idx]=r+1; infoOf[b.idx]=b; });
+  const dispIdx = S.sortBucket==="cost" ? rows.map(b=>b.idx) : S.bucket.map((_,j)=>j);
+
+  const total = S.bucket.reduce((s2,b)=>s2+b.cost,0);
+  const rateAt = m => total>0 ? rows.filter(b=>b.month&&b.month<=m).reduce((s2,b)=>s2+b.cost,0)/total*100 : 0;
+  const fullM = rows.length && rows.every(b=>b.month) ? Math.max(...rows.map(b=>b.month)) : null;
+
+  el.innerHTML = `
+  <div class="block-title" style="margin-top:24px;display:flex;justify-content:space-between;align-items:center">
+    <span>버킷리스트</span>
+    <a href="#" class="link" onclick="addBucketF7();return false">추가</a></div>
+  <div class="block" style="margin:0 16px 8px">
+    <p class="segmented segmented-strong">
+      ${[["cost","달성 순서"],["custom","직접"]].map(([k,l])=>
+        `<button class="button ${S.sortBucket===k?'button-active':''}" onclick="setSort('sortBucket','${k}')">${l}</button>`).join("")}
+      <span class="segmented-highlight"></span>
+    </p>
+  </div>
+  ${S.bucket.length ? `
+  <div class="list media-list inset ${S.sortBucket==='custom'?'sortable sortable-enabled':''}" data-key="bucket">
+    <ul>
+      ${dispIdx.map(idx=>{
+        const b = infoOf[idx], rank = rankOf[idx];
+        return `
+      <li class="swipeout">
+        <div class="item-content swipeout-content" onclick="openBucketSheet(${idx})" style="cursor:pointer">
+          <div class="item-media"><div class="ric-f7" style="color:var(--f7-theme-color);background:rgba(var(--f7-theme-color-rgb),.1)">${rank}</div></div>
+          <div class="item-inner">
+            <div class="item-title-row">
+              <div class="item-title">${esc(b.name)}</div>
+              <div class="item-after" style="font-weight:700">${fmtMan(b.cost)} 원</div></div>
+            <div class="item-subtitle" style="font-size:13px;color:${b.month?'var(--f7-theme-color)':'var(--f7-list-item-after-text-color)'}">
+              ${b.month?b.month+'개월 후 (보수 '+(b.monthBear||'—')+'개월)':'30년 내 미달성'}</div>
+          </div>
+        </div>
+        ${S.sortBucket==='custom'?'<div class="sortable-handler"></div>':''}
+        <div class="swipeout-actions-right"><a href="#" class="color-red" onclick="delBucket(${idx});return false">삭제</a></div>
+      </li>`;}).join("")}
+    </ul>
+  </div>` : '<div class="block" style="color:var(--f7-list-item-after-text-color)">버킷리스트를 추가해보세요.</div>'}
+
+  ${total>0 ? `
+  <div class="block-title">달성률</div>
+  <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
+    ${[12,24,36].map(m=>`
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:4px">
+        <span>${m}개월 후</span><b class="text-color-primary">${rateAt(m).toFixed(0)}% 달성</b></div>
+      <div class="progressbar" data-progress="${Math.round(rateAt(m))}">
+        <span style="transform:translate3d(${-(100-rateAt(m))}%,0,0)"></span></div>
+    </div>`).join("")}
+    ${fullM ? `<div style="background:var(--f7-theme-color);color:#fff;border-radius:12px;padding:12px;text-align:center;font-weight:700;font-size:14px;margin-top:4px">약 ${fullM}개월 후 버킷리스트 100% 달성</div>` : ""}
+  </div>` : ""}
+
+  <div class="block-title">데이터</div>
+  <div class="block" style="display:flex;gap:8px;margin:0 16px">
+    <button class="button button-tonal" style="flex:1" onclick="exportJSON()">내보내기</button>
+    <button class="button button-tonal" style="flex:1" onclick="importJSON()">가져오기</button>
+    <button class="button button-tonal color-red" style="flex:1" onclick="resetAll()">초기화</button>
+  </div>
+  <div class="block" style="text-align:center;font-size:12px;color:var(--f7-list-item-after-text-color)">
+    데이터는 이 기기 브라우저에만 저장됩니다.<br>iOS Safari는 장기간 미사용 시 데이터를 삭제할 수 있으니 주기적인 내보내기 백업을 권장합니다.</div>
+  <div class="block" style="height:24px"></div>`;
+}
+
+// F7 sortable 이벤트 → 배열 재배치 (직접 정렬 모드)
+app.on("sortableSort", (listEl, data) => {
+  try{
+    const wrap = (data && data.el && data.el.closest) ? data.el.closest(".sortable")
+               : (listEl && listEl.closest) ? listEl.closest(".sortable") : null;
+    const key = wrap && wrap.dataset && wrap.dataset.key;
+    if(!key || !S[key]) return;
+    const a = S[key];
+    a.splice(data.to, 0, a.splice(data.from, 1)[0]);
+    save(); render();
+  }catch(e){}
+});
+
+// 전역 render
+function render(){ renderHome(); renderLedger(); renderAsset(); renderDebt(); renderInvest(); renderGoal(); }
+app.on("tabShow", el => {
+  document.getElementById("ledger-fab").style.display = (el.id==="tab-ledger") ? "" : "none";
+  render();
+});
+render();
+</script>
+</body>
+</html>
