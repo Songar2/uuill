@@ -161,13 +161,13 @@ const DEFAULT_STATE = {
   lastBackup: 0,
   v: 2,
   portfolio: [
-    { name:"ISA (절세)",     cat:"위험", value:14000000, target:28 },
-    { name:"채권 ETF",       cat:"안전", value:10000000, target:20 },
-    { name:"미국 본토 ETF",  cat:"위험", value:5000000,  target:10 },
-    { name:"한국 직투",      cat:"위험", value:3000000,  target:6 },
-    { name:"발행어음 CMA",   cat:"안전", value:7500000,  target:15 },
-    { name:"정기예금",       cat:"안전", value:7500000,  target:15 },
-    { name:"청약 (주택드림)", cat:"청약", value:3000000,  target:6 },
+    { name:"ISA (절세)",     cat:"주식·투자", value:14000000, target:28 },
+    { name:"채권 ETF",       cat:"채권",     value:10000000, target:20 },
+    { name:"미국 본토 ETF",  cat:"주식·투자", value:5000000,  target:10 },
+    { name:"한국 직투",      cat:"주식·투자", value:3000000,  target:6 },
+    { name:"발행어음 CMA",   cat:"현금·예금", value:7500000,  target:15 },
+    { name:"정기예금",       cat:"현금·예금", value:7500000,  target:15 },
+    { name:"청약 (주택드림)", cat:"청약",     value:3000000,  target:6 },
   ],
 };
 const KEY = "uuill-state-v1";
@@ -182,11 +182,15 @@ function migrate(raw){
     rate: Math.max(0,Number(x.rate)||0), minPay: Math.max(0,Number(x.minPay)||0) }));
   st.portfolio = arr(st.portfolio).map(x=>({
     name: String(x.name||"자산"),
-    cat: ["안전","위험","청약"].includes(x.cat) ? x.cat : "안전",
+    cat: (()=>{
+      const cats = ["현금·예금","채권","주식·투자","청약","연금","기타"];
+      if(cats.includes(x.cat)) return x.cat;
+      return ({안전:"현금·예금", 위험:"주식·투자", 청약:"청약"})[x.cat] || "기타"; // 구버전 변환, 미분류는 기타
+    })(),
     value: Math.max(0,Number(x.value)||0), target: Math.max(0,Number(x.target)||0) }));
   // 구버전: portfolio 없던 시절 assets 단일값
   if(!st.portfolio.length && Number(raw.assets)>0)
-    st.portfolio = [{name:"현금/예금", cat:"안전", value:Number(raw.assets), target:100}];
+    st.portfolio = [{name:"현금/예금", cat:"현금·예금", value:Number(raw.assets), target:100}];
   st.bucket = arr(st.bucket).map(x=>({ name:String(x.name||"목표"), cost:Math.max(0,Number(x.cost)||0) }));
   st.ledger = arr(st.ledger)
     .filter(e=>/^\d{4}-\d{2}-\d{2}$/.test(String(e.date)) && Number(e.amount)>0)
@@ -256,11 +260,20 @@ function ledgerStats(mo=LMONTH){
   return { inc, exp, fixedExp, varExp, projExp, isCurrent };
 }
 
-// ───────── 포트폴리오 카테고리 ─────────
-// 가정 수익률(연): 안전 3.3% / 위험 7% / 청약 4.5%
-const CAT_RETURN = { 안전:0.033, 위험:0.07, 청약:0.045 };
-const CAT_COLOR  = { 안전:"#17c167", 위험:"#f04452", 청약:"#c9a227" };
-const CAT_GLYPH  = { 안전:"₩", 위험:"↗", 청약:"⌂" };
+// ───────── 포트폴리오 분류 ─────────
+// 분류(정리·표시용) → 위험군(배분 계산용) 매핑 + 가정 수익률(연)
+// "기타"는 수익 가정 0% — 자동차·보증금 등 비수익 자산 수기 등록용
+const PCAT = {
+  "현금·예금": { risk:"안전", ret:0.030, color:"#17c167", glyph:"₩" },
+  "채권":      { risk:"안전", ret:0.040, color:"#0fa3a3", glyph:"채" },
+  "주식·투자": { risk:"위험", ret:0.070, color:"#f04452", glyph:"↗" },
+  "청약":      { risk:"청약", ret:0.045, color:"#c9a227", glyph:"⌂" },
+  "연금":      { risk:"위험", ret:0.050, color:"#8a63d2", glyph:"연" },
+  "기타":      { risk:"기타", ret:0.0,   color:"#9b9b9b", glyph:"…" },
+};
+const RISK_COLOR = { 안전:"#17c167", 위험:"#f04452", 청약:"#c9a227", 기타:"#9b9b9b" };
+const CAT_RETURN = {}, CAT_COLOR = {}, CAT_GLYPH = {};
+Object.entries(PCAT).forEach(([k,v])=>{ CAT_RETURN[k]=v.ret; CAT_COLOR[k]=v.color; CAT_GLYPH[k]=v.glyph; });
 function portTotal(){ return S.portfolio.reduce((s,p)=>s+p.value,0); }
 function portBaseReturn(){
   const t = portTotal();
@@ -497,7 +510,7 @@ function renderHome(){
         <div class="item-title" style="color:var(--f7-list-item-after-text-color)">월말 예상 지출</div>
         <div class="item-after">${fmt(Math.round(st.projExp))} 원</div></div></li>` : ""}
       <li class="item-content"><div class="item-inner">
-        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">적용 잉여현금 ${diag.ledgerBased?"(실적)":"(기본값)"}</div>
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">월 잉여현금 ${diag.ledgerBased?"(가계부 실적)":"(기본값)"}</div>
         <div class="item-after text-color-primary"><b>${fmt(Math.round(diag.surplus))} 원</b></div></div></li>
       <li class="item-content"><div class="item-inner item-cell">
         <div style="width:100%">
@@ -690,7 +703,7 @@ function openPortSheet(i){
               <li class="item-content item-input"><div class="item-inner">
                 <div class="item-title item-label">분류</div>
                 <div class="item-input-wrap input-dropdown-wrap"><select id="pt-cat">
-                  ${["안전","위험","청약"].map(c=>`<option ${pt.cat===c?"selected":""}>${c}</option>`).join("")}
+                  ${Object.keys(PCAT).map(c=>`<option ${pt.cat===c?"selected":""}>${c}</option>`).join("")}
                 </select></div></div></li>
               <li class="item-content item-input"><div class="item-inner">
                 <div class="item-title item-label">평가액 (만원)</div>
@@ -721,7 +734,7 @@ function savePortEdit(i){
   save(); render(); toast("수정되었습니다");
 }
 function addPortF7(){
-  S.portfolio.push({name:"새 자산", cat:"안전", value:0, target:0});
+  S.portfolio.push({name:"새 자산", cat:"현금·예금", value:0, target:0});
   save(); render(); openPortSheet(S.portfolio.length-1);
 }
 
@@ -825,14 +838,15 @@ function renderLedger(){
   <div class="block-title">내 자산 정리
     <a href="#" class="link" onclick="addPortF7();return false">추가</a></div>
   <div class="block inset" style="margin-bottom:0;background:#fff;border-radius:16px;padding:16px">
-    <div style="font-size:12px;color:#7a7a7a;font-weight:600;margin-bottom:4px">총자산</div>
-    <div class="big-num cntup" data-v="${portTotal()}" data-f="won"><span class="cnt-n">${fmt(portTotal())}</span><span class="unit">원</span></div>
+    <div style="font-size:12px;color:#7a7a7a;font-weight:600;margin-bottom:4px">순자산</div>
+    <div class="big-num cntup" data-v="${diag.netWorth}" data-f="won"><span class="cnt-n">${fmt(diag.netWorth)}</span><span class="unit">원</span></div>
+    <div style="font-size:12px;color:#9b9b9b;margin-top:6px">총자산 ${fmt(portTotal())} · 총부채 -${fmt(diag.totalDebt)}</div>
   </div>
-  ${["안전","위험","청약"].map(cat=>{
+  ${Object.keys(PCAT).map(cat=>{
     const items = S.portfolio.map((pt,i)=>({pt,i})).filter(x=>x.pt.cat===cat);
     if(!items.length) return "";
     const sub = items.reduce((s2,x)=>s2+x.pt.value,0);
-    const label = {안전:"현금·예금·안전자산", 위험:"주식·투자자산", 청약:"청약"}[cat];
+    const label = cat;
     return `
     <div class="block-title block-title-small" style="display:flex;justify-content:space-between">
       <span>${label}</span><span>${fmt(sub)} 원</span></div>
@@ -856,7 +870,7 @@ function renderLedger(){
   <div class="block-title">기본값 (기록 없는 달의 진단 기준)</div>
   <div class="list inset">
     <ul>
-      ${[["income","기본 소득"],["living","생활비 예산"],["fixedRepay","고정 상환(기타)"]].map(([k,l])=>`
+      ${[["income","세후 월 소득"],["living","월 생활비 예산"],["fixedRepay","기타 고정 상환 (부채 약정 외)"]].map(([k,l])=>`
       <li class="item-content item-input"><div class="item-inner">
         <div class="item-title item-label">${l} (만원)</div>
         <div class="item-input-wrap"><input type="number" value="${S[k]/10000}" onchange="upBase('${k}',this.value)"></div></div></li>`).join("")}
@@ -874,12 +888,14 @@ function renderAsset(){
   const ret = blendedReturn(S.risk);
   const t = portTotal();
 
-  // 배분 현황 (분류별 현재 vs 목표)
-  const cats = ["안전","위험","청약"].map(c=>{
-    const v = S.portfolio.filter(pt=>pt.cat===c).reduce((s2,pt)=>s2+pt.value,0);
-    const tg = S.portfolio.filter(pt=>pt.cat===c).reduce((s2,pt)=>s2+pt.target,0);
+  // 배분 현황 (위험군별 현재 vs 목표 — 분류는 PCAT으로 위험군에 매핑)
+  const riskOf = c => (PCAT[c]||PCAT["기타"]).risk;
+  const cats = ["안전","위험","청약","기타"].map(c=>{
+    const ofRisk = S.portfolio.filter(pt=>riskOf(pt.cat)===c);
+    const v = ofRisk.reduce((s2,pt)=>s2+pt.value,0);
+    const tg = ofRisk.reduce((s2,pt)=>s2+pt.target,0);
     return {c, v, tg};
-  });
+  }).filter(x=>x.v>0 || x.tg>0 || x.c!=="기타");
 
   // 리밸런싱 플랜 (갭 5만 이상, 큰 순)
   const tgtSum = S.portfolio.reduce((s2,pt)=>s2+pt.target,0);
@@ -910,15 +926,21 @@ function renderAsset(){
     <span style="font-size:12px;font-weight:400;color:var(--f7-list-item-after-text-color)">— 잔액 수정·추가는 가계부 탭</span></div>
   <div class="block inset" style="background:var(--f7-list-bg-color);border-radius:16px;padding:16px">
     <div class="stack">${cats.map(x=>t>0&&x.v>0?`
-      <div style="width:${x.v/t*100}%;background:${CAT_COLOR[x.c]}"></div>`:"").join("")}</div>
+      <div style="width:${x.v/t*100}%;background:${RISK_COLOR[x.c]}"></div>`:"").join("")}</div>
     <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-top:8px">
-      ${cats.map(x=>`<span style="color:${CAT_COLOR[x.c]};font-weight:700">■</span> ${x.c} ${t>0?(x.v/t*100).toFixed(0):0}% <span style="opacity:.7">/ 목표 ${x.tg.toFixed(0)}%</span>`).join(" &nbsp; ")}</div>
+      ${cats.map(x=>`<span style="color:${RISK_COLOR[x.c]};font-weight:700">■</span> ${x.c} ${t>0?(x.v/t*100).toFixed(0):0}% <span style="opacity:.7">/ 목표 ${x.tg.toFixed(0)}%</span>`).join(" &nbsp; ")}</div>
   </div>
   <div class="list inset" style="margin-top:8px">
     <ul>
       <li class="item-content"><div class="item-inner">
-        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">총자산</div>
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">총자산 (보유 자산 합계)</div>
         <div class="item-after"><b>${fmt(t)} 원</b></div></div></li>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">총부채</div>
+        <div class="item-after"><b>-${fmt(diag.totalDebt)} 원</b></div></div></li>
+      <li class="item-content"><div class="item-inner">
+        <div class="item-title" style="color:var(--f7-list-item-after-text-color)">순자산 (총자산 − 총부채)</div>
+        <div class="item-after"><b class="text-color-primary">${fmt(diag.netWorth)} 원</b></div></div></li>
       <li class="item-content"><div class="item-inner">
         <div class="item-title" style="color:var(--f7-list-item-after-text-color)">가중 기대수익 (가정)</div>
         <div class="item-after"><b>연 ${(base*100).toFixed(1)}%</b></div></div></li>
@@ -962,7 +984,7 @@ function renderAsset(){
       <text x="${W2-24}" y="${H2+16}" font-size="11" fill="#8b95a1">5년</text>
     </svg>
     <div style="font-size:12px;color:var(--f7-list-item-after-text-color);margin-top:8px">
-      Base 연 ${(base*100).toFixed(1)}% (포트 가중) · Bull/Bear ±4%p · 월 ${fmtMan(monthly)} 적립 가정 · 참고용, 수익 보장 아님</div>
+      총자산 기준 (부채 미반영) · Base 연 ${(base*100).toFixed(1)}% (포트 가중) · Bull/Bear ±4%p · 월 ${fmtMan(monthly)} 적립 가정 · 참고용, 수익 보장 아님</div>
   </div>
   <div class="block" style="height:24px"></div>`;
 }
@@ -1353,33 +1375,32 @@ function renderGoal(){
     ${fullM ? `<div style="background:var(--f7-theme-color);color:#fff;border-radius:12px;padding:12px;text-align:center;font-weight:700;font-size:14px;margin-top:4px">약 ${fullM}개월 후 버킷리스트 100% 달성</div>` : ""}
   </div>` : ""}
 
-  <div class="block-title">목표에 도움 되는 소식</div>
-  <div class="block" style="margin:0 16px 8px;display:flex;gap:6px;flex-wrap:wrap">
-    ${newsTopics().map(([label,q])=>`
-    <a href="#" class="chip ${NEWS.label===label?'chip-outline color-primary':''}" style="cursor:pointer"
-       onclick="loadNews('${label.replace(/'/g,"")}','${q.replace(/'/g,"")}');return false">
-      <div class="chip-label">${label}</div></a>`).join("")}
-  </div>
-  ${NEWS.loading ? `
-  <div class="block text-align-center"><div class="preloader"></div></div>` : ""}
-  ${NEWS.error ? `
-  <div class="block" style="font-size:13px;color:var(--f7-list-item-after-text-color)">${NEWS.error}</div>` : ""}
-  ${NEWS.items.length ? `
-  <div class="list media-list inset">
-    <ul>
-      ${NEWS.items.map(n=>`
-      <li><a href="${n.link}" target="_blank" rel="noopener" class="item-link item-content external">
-        <div class="item-inner">
-          <div class="item-title" style="font-size:14px;white-space:normal;line-height:1.4">${esc(n.title)}</div>
-          <div class="item-subtitle" style="font-size:12px;color:var(--f7-list-item-after-text-color)">
-            ${esc(n.source||"")}${n.source&&n.date?" · ":""}${timeAgo(n.date)}</div>
-        </div>
-      </a></li>`).join("")}
-    </ul>
-  </div>
-  <div class="block" style="margin-top:4px;font-size:11px;color:var(--f7-list-item-after-text-color)">출처: 구글 뉴스 검색 — 정보 제공용이며 투자·대출 권유가 아닙니다.</div>` : ""}
-  ${!NEWS.loading && !NEWS.items.length && !NEWS.error ? `
-  <div class="block" style="font-size:13px;color:var(--f7-list-item-after-text-color)">키워드를 누르면 관련 최신 뉴스를 불러옵니다. 부채·자산 상황에 맞는 키워드가 자동 제안됩니다.</div>` : ""}
+  <div class="block-title" style="display:flex;justify-content:space-between;align-items:center">
+    <span>목표에 도움 되는 소식 <span style="font-weight:400;font-size:12px;color:#9b9b9b">네이버 뉴스 · 오늘</span></span>
+    <a href="#" class="link" onclick="ensureNews(true);return false">새로고침</a></div>
+  ${NEWSD.loading ? `
+  <div class="block text-align-center"><div class="preloader"></div></div>` : (()=>{
+    if(!NEWSD.data) return `<div class="block" style="font-size:13px;color:#9b9b9b">소식을 불러오는 중이 아닙니다 — 새로고침을 눌러보세요.</div>`;
+    const secs = newsTopics().map(([label])=>{
+      const items = NEWSD.data[label] || [];
+      if(!items.length) return ""; // 그날 뉴스 없으면 카테고리 자체를 비움
+      return `
+      <div class="block-title block-title-small">${label}</div>
+      <div class="list media-list inset">
+        <ul>
+          ${items.map(n=>`
+          <li><a href="${n.link}" target="_blank" rel="noopener" class="item-link item-content external">
+            <div class="item-inner">
+              <div class="item-title" style="font-size:14px;white-space:normal;line-height:1.4">${esc(n.title)}</div>
+            </div>
+          </a></li>`).join("")}
+        </ul>
+      </div>`;
+    }).join("");
+    return secs || `<div class="block" style="font-size:13px;color:#9b9b9b">오늘은 표시할 소식이 없습니다.</div>`;
+  })()}
+  ${!NEWSD.loading ? `
+  <div class="block" style="margin-top:4px;font-size:11px;color:#9b9b9b">출처: 네이버 뉴스 검색 — 정보 제공용이며 투자·대출 권유가 아닙니다. 매일 자동 갱신.</div>` : ""}
 
   <div class="block-title">데이터</div>
   <div class="block" style="display:flex;gap:8px;margin:0 16px">
@@ -1415,58 +1436,59 @@ function render(){
   renderHome(); renderLedger(); renderAsset(); renderDebt(); renderInvest(); renderGoal();
 }
 
-// ── 목표 관련 뉴스 (구글 뉴스 RSS, CORS 프록시 경유) ──
-let NEWS = { q: null, label: null, loading: false, items: [], error: null };
+// ── 목표 관련 소식 (네이버 뉴스 검색 자동 수집 · 매일 리셋) ──
+const NEWS_KEY = "uuill-news-v1";
+let NEWSD = { date: null, data: null, loading: false };
+try{
+  const cached = JSON.parse(localStorage.getItem(NEWS_KEY));
+  if(cached && cached.date === todayStr) NEWSD = { ...cached, loading:false }; // 날짜 다르면 자동 리셋
+}catch(e){}
+
 function newsTopics(){
   const t = [];
-  if(S.debts.some(d=>d.rate>=15)) t.push(["대환·햇살론", "청년 햇살론 대환대출"]);
-  t.push(["청년 재테크", "청년 재테크 자산관리"]);
-  t.push(["ISA 절세", "ISA 계좌 절세"]);
-  if(S.portfolio.some(pt=>pt.cat==="청약")) t.push(["청약", "청년 주택드림 청약"]);
-  t.push(["금리", "기준금리 예금 금리"]);
+  if(S.debts.some(d=>d.rate>=15)) t.push(["대환·햇살론", "청년 햇살론 대환", ["햇살론","대환"]]);
+  t.push(["청년 재테크", "청년 재테크", ["재테크","자산"]]);
+  t.push(["ISA 절세", "ISA 절세", ["ISA","절세"]]);
+  if(S.portfolio.some(pt=>pt.cat==="청약")) t.push(["청약", "청년 주택드림 청약", ["청약","주택드림"]]);
+  t.push(["금리", "기준금리", ["금리"]]);
   return t;
 }
-function parseRss(xml){
+function decodeEnt(x){
+  return x.replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
+          .replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
+}
+// 네이버 뉴스 검색 결과에서 기사 제목·링크 추출, 카테고리 핵심어 포함 기사만
+function parseNaver(html, words){
   const items = [];
-  const blocks = xml.match(/<item>[\s\S]*?<\/item>/g) || [];
-  const pick = (b, tag) => {
-    const m = b.match(new RegExp("<"+tag+"[^>]*>([\\s\\S]*?)<\\/"+tag+">"));
-    if(!m) return "";
-    return m[1].replace(/<!\[CDATA\[([\s\S]*?)\]\]>/,"$1")
-      .replace(/&amp;/g,"&").replace(/&lt;/g,"<").replace(/&gt;/g,">")
-      .replace(/&quot;/g,'"').replace(/&#39;/g,"'").trim();
-  };
-  for(const b of blocks.slice(0,6)){
-    items.push({
-      title: pick(b,"title"),
-      link: pick(b,"link"),
-      source: pick(b,"source"),
-      date: pick(b,"pubDate"),
-    });
+  const re = /class="[^"]*news_tit[^"]*"[^>]*href="(https?:\/\/[^"]+)"[^>]*title="([^"]+)"/g;
+  let m;
+  while((m = re.exec(html)) && items.length < 3){
+    const title = decodeEnt(m[2]);
+    if(!words.some(w => title.includes(w))) continue;       // 카테고리 단어 포함 기사만
+    if(items.some(it => it.link === m[1])) continue;
+    items.push({ title, link: m[1] });
   }
   return items;
 }
-function timeAgo(d){
-  const t = new Date(d).getTime();
-  if(isNaN(t)) return "";
-  const h = Math.floor((Date.now()-t)/3600000);
-  if(h < 1) return "방금";
-  if(h < 24) return h+"시간 전";
-  return Math.floor(h/24)+"일 전";
-}
-function loadNews(label, q){
-  NEWS = { q, label, loading: true, items: [], error: null };
-  render();
-  const rss = "https://news.google.com/rss/search?q="+encodeURIComponent(q)+"&hl=ko&gl=KR&ceid=KR:ko";
-  fetch("https://api.allorigins.win/raw?url="+encodeURIComponent(rss))
+function fetchNaverNews(q, words){
+  const url = "https://search.naver.com/search.naver?where=news&query=" + encodeURIComponent(q);
+  return fetch("https://api.allorigins.win/raw?url=" + encodeURIComponent(url))
     .then(r => { if(!r.ok) throw new Error("bad"); return r.text(); })
-    .then(xml => {
-      const items = parseRss(xml);
-      NEWS = { q, label, loading: false, items, error: items.length ? null : "결과가 없습니다" };
-      render();
-    })
-    .catch(() => {
-      NEWS = { q, label, loading: false, items: [], error: "불러오지 못했습니다 — 네트워크 확인 후 다시 시도" };
+    .then(html => parseNaver(html, words))
+    .catch(() => []);  // 실패·없음 → 비워둠
+}
+function ensureNews(force){
+  if(NEWSD.loading) return;
+  if(!force && NEWSD.date === todayStr && NEWSD.data) return; // 오늘 치 이미 있음
+  const topics = newsTopics();
+  NEWSD = { date: todayStr, data: null, loading: true };
+  render();
+  Promise.all(topics.map(([label,q,words]) => fetchNaverNews(q, words).then(items => [label, items])))
+    .then(pairs => {
+      const data = {};
+      pairs.forEach(([label, items]) => { if(items.length) data[label] = items; });
+      NEWSD = { date: todayStr, data, loading: false };
+      try{ localStorage.setItem(NEWS_KEY, JSON.stringify({date: todayStr, data})); }catch(e){}
       render();
     });
 }
@@ -1533,6 +1555,7 @@ function animateTab(tabEl){
 }
 app.on("tabShow", el => {
   document.getElementById("ledger-fab").style.display = (el.id==="tab-ledger") ? "" : "none";
+  if(el.id === "tab-goal") ensureNews(); // 목표 탭 진입 시 오늘 치 자동 수집
   render();
   animateTab(el);
 });
