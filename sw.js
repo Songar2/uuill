@@ -1,6 +1,6 @@
 // uuill service worker — v1
 // 앱 셸 + CDN 정적 자원 캐시 → 오프라인 동작
-const CACHE = "uuill-v1";
+const CACHE = "uuill-v2";
 const PRECACHE = [
   "./",
   "./index.html",
@@ -30,6 +30,9 @@ self.addEventListener("activate", e => {
 
 self.addEventListener("fetch", e => {
   if (e.request.method !== "GET") return;
+
+  // 뉴스/프록시 요청은 캐시하지 않음 — 항상 최신
+  if (/allorigins\.win|news\.google\.com/.test(e.request.url)) return;
 
   // 페이지 진입(navigation)은 네트워크 우선 — 업데이트가 바로 반영되도록
   if (e.request.mode === "navigate") {
