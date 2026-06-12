@@ -59,6 +59,32 @@
   .anim-in > *:nth-child(6){animation-delay:.2s;}
   .anim-in .progressbar span{transition:transform .7s cubic-bezier(.2,.7,.3,1);}
   .anim-in .stack > div{transition:width .6s cubic-bezier(.2,.7,.3,1);}
+
+  /* ── styleseed(Toss) 디자인 규칙 보정 ──
+     · 순수 검정 금지: 5단계 그레이스케일 (#2A→#3C→#6A→#7A→#9B)
+     · 콘텐츠는 흰 카드 위에 — 배경 #FAFAFA와의 대비가 구분선
+     · 그림자는 4~6% 불투명도로 겨우 보이게
+     · 숫자는 크게, 단위는 절반 크기로 */
+  :root{
+    --f7-page-bg-color:#fafafa;
+    --f7-bars-bg-color:#fafafa;
+    --f7-text-color:#2a2a2a;
+    --f7-list-bg-color:#fff;
+    --f7-list-item-after-text-color:#7a7a7a;
+    --f7-list-item-subtitle-text-color:#7a7a7a;
+    --f7-block-title-text-color:#3c3c3c;
+    --f7-toolbar-bg-color:#fff;
+  }
+  .list.inset{border-radius:16px; box-shadow:0 1px 4px rgba(0,0,0,.05);}
+  .block.inset{box-shadow:0 1px 4px rgba(0,0,0,.05);}
+  .block-title{font-weight:700; letter-spacing:-0.01em;}
+  .item-title{font-weight:600;}
+  .navbar .title{letter-spacing:-0.02em;}
+  .hero-card{box-shadow:0 2px 8px rgba(72,52,212,.18);}
+  .big-num{font-size:28px;}
+  .unit{font-size:.55em; font-weight:600; color:#9b9b9b; margin-left:3px;}
+  .cal .day .ex{color:#d94350;}
+  .fab a{box-shadow:0 4px 12px rgba(72,52,212,.3);}
 </style>
 </head>
 <body>
@@ -95,8 +121,11 @@
       </div>
 
       <div class="fab fab-right-bottom" id="ledger-fab" style="display:none">
-        <a href="#" onclick="openLedgerSheet();return false">
-          <i class="icon f7-icons">plus</i>
+        <a href="#" onclick="openLedgerSheet();return false"
+           style="display:flex;align-items:center;justify-content:center">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M12 5v14M5 12h14" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
         </a>
       </div>
 
@@ -795,7 +824,10 @@ function renderLedger(){
 
   <div class="block-title">내 자산 정리
     <a href="#" class="link" onclick="addPortF7();return false">추가</a></div>
-  <div class="block inset" style="margin-bottom:0"><div class="big-num cntup" data-v="${portTotal()}" data-f="won">${fmt(portTotal())} 원</div></div>
+  <div class="block inset" style="margin-bottom:0;background:#fff;border-radius:16px;padding:16px">
+    <div style="font-size:12px;color:#7a7a7a;font-weight:600;margin-bottom:4px">총자산</div>
+    <div class="big-num cntup" data-v="${portTotal()}" data-f="won"><span class="cnt-n">${fmt(portTotal())}</span><span class="unit">원</span></div>
+  </div>
   ${["안전","위험","청약"].map(cat=>{
     const items = S.portfolio.map((pt,i)=>({pt,i})).filter(x=>x.pt.cat===cat);
     if(!items.length) return "";
@@ -1486,11 +1518,14 @@ function animateTab(tabEl){
     const v = Number(el2.dataset.v)||0;
     const f = el2.dataset.f;
     const t0 = performance.now(), DUR = 550;
+    const tn = (el2.querySelector && el2.querySelector(".cnt-n")) || null;
     function step(now){
       const k = Math.min((now-t0)/DUR, 1);
       const e2 = 1-Math.pow(1-k,3); // ease-out cubic
       const cur = Math.round(v*e2);
-      el2.textContent = (f==="man" ? fmtMan(cur) : fmt(cur)) + " 원";
+      const txt = f==="man" ? fmtMan(cur) : fmt(cur);
+      if(tn) tn.textContent = txt;            // 단위(<span class="unit">) 보존
+      else el2.textContent = txt + " 원";
       if(k<1) requestAnimationFrame(step);
     }
     requestAnimationFrame(step);
