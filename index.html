@@ -4,6 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#4834d4">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="uuill">
 <title>uuill — 자산·부채 관리</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/framework7@8/framework7-bundle.min.css">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
@@ -385,8 +390,9 @@ function renderHome(){
   const rebal = S.portfolio.filter(p=>Math.abs(t0*p.target/100-p.value)>=50000).length;
 
   // 버킷 (로직 동일: 비용순 누적, 투자 누적 기준)
+  // 달성 순서 = 사용자가 정한 우선순위(배열 순서)
   let cum=0;
-  const bucketRows = [...S.bucket].sort((a,b)=>a.cost-b.cost).map(b=>{
+  const bucketRows = S.bucket.map(b=>{
     cum += b.cost;
     const hit = sim.series.find(p=>p.invest>=cum);
     return {...b, month: hit?hit.m:null};
@@ -969,22 +975,19 @@ function openBucketSheet(i){
   const ret = blendedReturn(S.risk);
   const sim = simulate(diag, ret);
   const simBear = simulate(diag, Math.max(ret-0.04,0.005));
-  const sorted = S.bucket.map((x,j)=>({...x, idx:j})).sort((a,c)=>a.cost-c.cost);
-  let cum=0, month=null, monthBear=null, rank=0, cumNeed=0;
-  for(let k=0;k<sorted.length;k++){
-    cum += sorted[k].cost;
-    if(sorted[k].idx===i){
-      rank=k+1; cumNeed=cum;
-      const hit = sim.series.find(pt=>pt.invest>=cum); month = hit?hit.m:null;
-      const hitB = simBear.series.find(pt=>pt.invest>=cum); monthBear = hitB?hitB.m:null;
-      break;
-    }
-  }
+  // 우선순위(배열 순서) 기준 — 앞 순위 목표들의 비용을 먼저 채운 뒤 달성
+  let cum=0;
+  for(let k=0;k<=i;k++) cum += S.bucket[k].cost;
+  const rank = i+1, cumNeed = cum;
+  const hit = sim.series.find(pt=>pt.invest>=cum);
+  const month = hit?hit.m:null;
+  const hitB = simBear.series.find(pt=>pt.invest>=cum);
+  const monthBear = hitB?hitB.m:null;
   const monthlySave = diag.surplus*diag.alloc.invest;
   app.sheet.create({ swipeToClose:true, backdrop:true, destroyOnClose:true, content: `
   <div class="sheet-modal" style="height:auto; border-radius:16px 16px 0 0">
     <div class="sheet-modal-inner"><div class="page-content" style="padding-bottom:calc(24px + env(safe-area-inset-bottom))">
-      <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">버킷리스트 · 달성 순서 ${rank}번째</div>
+      <div class="block-title block-title-medium" style="text-align:center;margin-top:16px">버킷리스트 · 우선순위 ${rank}</div>
       <div class="list inset" style="margin:8px 16px">
         <ul>
           <li class="item-content"><div class="item-inner"><div class="item-title" style="color:var(--f7-list-item-after-text-color)">달성 예상 (Base)</div><div class="item-after"><b>${month?month+"개월 후":"30년 내 미달성"}</b></div></div></li>
@@ -1231,16 +1234,14 @@ function renderGoal(){
   const sim = simulate(diag, ret);
   const simBear = simulate(diag, Math.max(ret-0.04,0.005));
 
+  // 우선순위 = 배열 순서. 드래그로 순서를 바꾸면 달성 순서·시점이 즉시 재계산된다.
   let cum=0;
-  const rows = S.bucket.map((b,j)=>({...b, idx:j})).sort((a,c)=>a.cost-c.cost).map(b=>{
+  const rows = S.bucket.map((b,j)=>{
     cum += b.cost;
     const hit = sim.series.find(pp=>pp.invest>=cum);
     const hitB = simBear.series.find(pp=>pp.invest>=cum);
-    return {...b, month: hit?hit.m:null, monthBear: hitB?hitB.m:null};
+    return {...b, idx:j, month: hit?hit.m:null, monthBear: hitB?hitB.m:null};
   });
-  const rankOf={}, infoOf={};
-  rows.forEach((b,r)=>{ rankOf[b.idx]=r+1; infoOf[b.idx]=b; });
-  const dispIdx = S.sortBucket==="cost" ? rows.map(b=>b.idx) : S.bucket.map((_,j)=>j);
 
   const total = S.bucket.reduce((s2,b)=>s2+b.cost,0);
   const rateAt = m => total>0 ? rows.filter(b=>b.month&&b.month<=m).reduce((s2,b)=>s2+b.cost,0)/total*100 : 0;
@@ -1250,22 +1251,15 @@ function renderGoal(){
   <div class="block-title" style="margin-top:24px;display:flex;justify-content:space-between;align-items:center">
     <span>버킷리스트</span>
     <a href="#" class="link" onclick="addBucketF7();return false">추가</a></div>
-  <div class="block" style="margin:0 16px 8px">
-    <p class="segmented segmented-strong">
-      ${[["cost","달성 순서"],["custom","직접"]].map(([k,l])=>
-        `<button class="button ${S.sortBucket===k?'button-active':''}" onclick="setSort('sortBucket','${k}')">${l}</button>`).join("")}
-      <span class="segmented-highlight"></span>
-    </p>
-  </div>
+  <div class="block" style="margin:0 16px 4px;font-size:12px;color:var(--f7-list-item-after-text-color)">
+    위에 있을수록 먼저 달성합니다 — 우측 핸들을 끌어 우선순위를 바꾸세요.</div>
   ${S.bucket.length ? `
-  <div class="list media-list inset ${S.sortBucket==='custom'?'sortable sortable-enabled':''}" data-key="bucket">
+  <div class="list media-list inset sortable sortable-enabled" data-key="bucket">
     <ul>
-      ${dispIdx.map(idx=>{
-        const b = infoOf[idx], rank = rankOf[idx];
-        return `
+      ${rows.map(b=>`
       <li class="swipeout">
-        <div class="item-content swipeout-content" onclick="openBucketSheet(${idx})" style="cursor:pointer">
-          <div class="item-media"><div class="ric-f7" style="color:var(--f7-theme-color);background:rgba(var(--f7-theme-color-rgb),.1)">${rank}</div></div>
+        <div class="item-content swipeout-content" onclick="openBucketSheet(${b.idx})" style="cursor:pointer">
+          <div class="item-media"><div class="ric-f7" style="color:var(--f7-theme-color);background:rgba(var(--f7-theme-color-rgb),.1)">${b.idx+1}</div></div>
           <div class="item-inner">
             <div class="item-title-row">
               <div class="item-title">${esc(b.name)}</div>
@@ -1274,9 +1268,9 @@ function renderGoal(){
               ${b.month?b.month+'개월 후 (보수 '+(b.monthBear||'—')+'개월)':'30년 내 미달성'}</div>
           </div>
         </div>
-        ${S.sortBucket==='custom'?'<div class="sortable-handler"></div>':''}
-        <div class="swipeout-actions-right"><a href="#" class="color-red" onclick="delBucket(${idx});return false">삭제</a></div>
-      </li>`;}).join("")}
+        <div class="sortable-handler"></div>
+        <div class="swipeout-actions-right"><a href="#" class="color-red" onclick="delBucket(${b.idx});return false">삭제</a></div>
+      </li>`).join("")}
     </ul>
   </div>` : '<div class="block" style="color:var(--f7-list-item-after-text-color)">버킷리스트를 추가해보세요.</div>'}
 
@@ -1324,6 +1318,13 @@ app.on("tabShow", el => {
   render();
 });
 render();
+
+// ── PWA: 서비스 워커 등록 ──
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("./sw.js").catch(()=>{});
+  });
+}
 </script>
 </body>
 </html>

@@ -1,0 +1,16 @@
+{
+  "name": "uuill — 자산·부채 관리",
+  "short_name": "uuill",
+  "description": "자산-부채 통합 관리 · 가계부 · 리밸런싱 · 상환 시뮬레이션",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f5f6f8",
+  "theme_color": "#4834d4",
+  "lang": "ko",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
